@@ -1,0 +1,61 @@
+# Argos Smart Campus Platform - Complete Requirements
+# Python 3.11+ recommended (3.14 compatible for most packages)
+
+# ===== Core Framework =====
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+
+# ===== Database & ORM =====
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg[binary,pool]==3.2.3
+pymongo==4.10.1
+motor==3.6.0
+redis==5.2.2
+
+# ===== Security & Authentication =====
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+python-multipart==0.0.20
+cryptography==46.0.3
+email-validator==2.2.0
+
+# ===== Utilities & HTTP =====
+python-dotenv==1.0.1
+httpx==0.28.1
+tenacity==9.0.0
+structlog==24.4.0
+
+# ===== Reports & PDF Generation =====
+reportlab==4.4.4
+
+# ===== ML & Data Science (Optional - see INSTALL_PACKAGES.bat) =====
+# torch
+# numpy
+# pandas
+# scikit-learn
+# pytorch-lightning
+# stable-baselines3
+# gymnasium
+# lime
+# shap
+# ortools
+
+# ===== Development & Testing =====
+pytest==8.3.4
+pytest-asyncio==0.24.0
+black==24.10.0
+
+# ===== Kafka & Streaming (Optional) =====
+# kafka-python==2.0.2
+# aiokafka==0.11.0
+
+# ===== Monitoring (Optional) =====
+# prometheus-client==0.21.0
+# opentelemetry-api==1.29.0
+
+# Note: ML packages (torch, stable-baselines3, etc.) may require Python 3.11 or 3.12
+# Run INSTALL_PACKAGES.bat separately to install ML features

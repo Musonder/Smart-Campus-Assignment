@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package argos.academic;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Academic Service - handles courses, enrollment, and grades
+
+service AcademicService {
+  // Courses
+  rpc GetCourse(GetCourseRequest) returns (CourseResponse);
+  rpc ListCourses(ListCoursesRequest) returns (CourseListResponse);
+  rpc CreateCourse(CreateCourseRequest) returns (CourseResponse);
+  
+  // Sections
+  rpc GetSection(GetSectionRequest) returns (SectionResponse);
+  rpc ListSections(ListSectionsRequest) returns (SectionListResponse);
+  rpc CreateSection(CreateSectionRequest) returns (SectionResponse);
+  
+  // Enrollment
+  rpc EnrollStudent(EnrollmentRequest) returns (EnrollmentResponse);
+  rpc DropEnrollment(DropEnrollmentRequest) returns (google.protobuf.Empty);
+  rpc GetEnrollments(GetEnrollmentsRequest) returns (EnrollmentListResponse);
+  
+  // Grades
+  rpc AssignGrade(AssignGradeRequest) returns (GradeResponse);
+  rpc GetGrades(GetGradesRequest) returns (GradeListResponse);
+}
+
+message GetCourseRequest {
+  string course_id = 1;
+}
+
+message ListCoursesRequest {
+  string department = 1;
+  string level = 2;
+  int32 skip = 3;
+  int32 limit = 4;
+}
+
+message CreateCourseRequest {
+  string course_code = 1;
+  string title = 2;
+  string description = 3;
+  int32 credits = 4;
+  string level = 5;
+  string department = 6;
+  repeated string prerequisites = 7;
+}
+
+message CourseResponse {
+  string id = 1;
+  string course_code = 2;
+  string title = 3;
+  string description = 4;
+  int32 credits = 5;
+  string level = 6;
+  string department = 7;
+  repeated string prerequisites = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message CourseListResponse {
+  repeated CourseResponse courses = 1;
+  int32 total = 2;
+}
+
+message GetSectionRequest {
+  string section_id = 1;
+}
+
+message ListSectionsRequest {
+  string course_code = 1;
+  string semester = 2;
+  bool available_only = 3;
+}
+
+message CreateSectionRequest {
+  string course_id = 1;
+  string section_number = 2;
+  string semester = 3;
+  string instructor_id = 4;
+  repeated string schedule_days = 5;
+  string start_time = 6;
+  string end_time = 7;
+  int32 max_enrollment = 8;
+}
+
+message SectionResponse {
+  string id = 1;
+  string course_id = 2;
+  string section_number = 3;
+  string semester = 4;
+  string instructor_id = 5;
+  repeated string schedule_days = 6;
+  string start_time = 7;
+  string end_time = 8;
+  int32 max_enrollment = 9;
+  int32 current_enrollment = 10;
+  int32 waitlist_size = 11;
+  bool is_full = 12;
+}
+
+message SectionListResponse {
+  repeated SectionResponse sections = 1;
+}
+
+message EnrollmentRequest {
+  string student_id = 1;
+  string section_id = 2;
+}
+
+message DropEnrollmentRequest {
+  string enrollment_id = 1;
+}
+
+message GetEnrollmentsRequest {
+  string student_id = 1;
+  string semester = 2;
+}
+
+message EnrollmentResponse {
+  string id = 1;
+  string student_id = 2;
+  string section_id = 3;
+  string enrollment_status = 4;
+  bool is_waitlisted = 5;
+  int32 waitlist_position = 6;
+  google.protobuf.Timestamp enrolled_at = 7;
+}
+
+message EnrollmentListResponse {
+  repeated EnrollmentResponse enrollments = 1;
+}
+
+message AssignGradeRequest {
+  string student_id = 1;
+  string assessment_id = 2;
+  string section_id = 3;
+  double points_earned = 4;
+  double total_points = 5;
+  string graded_by = 6;
+  string feedback = 7;
+}
+
+message GetGradesRequest {
+  string student_id = 1;
+  string section_id = 2;
+}
+
+message GradeResponse {
+  string id = 1;
+  string student_id = 2;
+  string assessment_id = 3;
+  double percentage = 4;
+  string letter_grade = 5;
+  google.protobuf.Timestamp graded_at = 6;
+}
+
+message GradeListResponse {
+  repeated GradeResponse grades = 1;
+}
+

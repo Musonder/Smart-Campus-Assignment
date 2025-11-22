@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'argos-services'
+    static_configs:
+      - targets:
+          - 'api_gateway:8000'
+          - 'user_service:8001'
+          - 'academic_service:8002'
+          - 'scheduler_service:8003'
+          - 'analytics_service:8004'
+          - 'facility_service:8005'
+          - 'security_service:8006'
+          - 'consensus_service:8007'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+

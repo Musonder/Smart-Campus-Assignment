@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package argos.user;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// User Service - handles authentication and user management
+
+service UserService {
+  // Authentication
+  rpc Authenticate(AuthRequest) returns (AuthResponse);
+  rpc ValidateToken(TokenRequest) returns (TokenValidation);
+  
+  // User Management
+  rpc GetUser(GetUserRequest) returns (UserResponse);
+  rpc CreateUser(CreateUserRequest) returns (UserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UserResponse);
+  
+  // Roles
+  rpc AttachRole(AttachRoleRequest) returns (google.protobuf.Empty);
+  rpc DetachRole(DetachRoleRequest) returns (google.protobuf.Empty);
+  rpc GetUserRoles(GetUserRequest) returns (RolesResponse);
+}
+
+message AuthRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message AuthResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string user_id = 3;
+  int32 expires_in = 4;
+}
+
+message TokenRequest {
+  string token = 1;
+}
+
+message TokenValidation {
+  bool is_valid = 1;
+  string user_id = 2;
+  repeated string roles = 3;
+  string email = 4;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string password = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string user_type = 5;
+  map<string, string> additional_data = 6;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  map<string, string> updates = 2;
+}
+
+message UserResponse {
+  string id = 1;
+  string email = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string user_type = 5;
+  repeated string roles = 6;
+  bool is_active = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message AttachRoleRequest {
+  string user_id = 1;
+  string role = 2;
+}
+
+message DetachRoleRequest {
+  string user_id = 1;
+  string role = 2;
+}
+
+message RolesResponse {
+  repeated string roles = 1;
+  repeated string attached_roles = 2;
+}
+

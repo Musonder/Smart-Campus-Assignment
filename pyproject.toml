@@ -1,0 +1,130 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argos"
+version = "0.1.0"
+description = "Argos: A Federated, Adaptive Smart Campus Orchestration Platform"
+authors = [{name = "Smart Campus Team"}]
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+
+[tool.setuptools]
+packages = ["shared", "services", "ml"]
+
+dependencies = [
+    # Core Framework
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    
+    # gRPC
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "grpcio-reflection>=1.60.0",
+    
+    # Database & ORM
+    "sqlalchemy>=2.0.25",
+    "alembic>=1.13.1",
+    "psycopg2-binary>=2.9.9",
+    "pymongo>=4.6.1",
+    "motor>=3.3.2",
+    "redis>=5.0.1",
+    
+    # Event Streaming
+    "aiokafka>=0.10.0",
+    "kafka-python>=2.0.2",
+    
+    # Security
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.6",
+    "cryptography>=42.0.0",
+    
+    # Machine Learning
+    "torch>=2.2.0",
+    "pytorch-lightning>=2.1.0",
+    "ray[rllib]>=2.9.0",
+    "scikit-learn>=1.4.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "shap>=0.44.0",
+    "lime>=0.2.0.1",
+    
+    # Optimization
+    "ortools>=9.8.0",
+    
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "httpx>=0.26.0",
+    "tenacity>=8.2.3",
+    "structlog>=24.1.0",
+    
+    # Monitoring
+    "prometheus-client>=0.19.0",
+    "opentelemetry-api>=1.22.0",
+    "opentelemetry-sdk>=1.22.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.3",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "hypothesis>=6.98.0",
+    "black>=24.1.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+    "locust>=2.20.0",
+]
+
+docs = [
+    "mkdocs>=1.5.3",
+    "mkdocs-material>=9.5.3",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "PIE", "RET", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=argos --cov-report=html --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["argos"]
+omit = ["*/tests/*", "*/migrations/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+

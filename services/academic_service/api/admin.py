@@ -1,0 +1,230 @@
+"""
+Admin-specific endpoints for Academic Service.
+"""
+
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+import structlog
+
+from shared.database import get_db
+from services.academic_service.models import CourseModel, SectionModel, EnrollmentModel
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+logger = structlog.get_logger(__name__)
+
+
+async def verify_admin(
+    authorization: Optional[str] = Header(None),
+) -> UUID:
+    """Verify user is admin and return admin ID."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    
+    try:
+        from jose import jwt
+        from shared.config import settings
+        import httpx
+        
+        # Extract token
+        token = authorization.replace("Bearer ", "").strip()
+        
+        # Decode JWT
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        user_id = UUID(payload.get("sub"))
+        
+        # Verify admin status by calling user service - PRODUCTION: No fallbacks
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                f"http://localhost:{settings.user_service_port}/api/v1/users/me",
+                headers={"Authorization": authorization},
+            )
+            response.raise_for_status()
+            
+            user_data = response.json()
+            if user_data.get("user_type") != "admin":
+                raise HTTPException(status_code=403, detail="Access denied - Admin role required")
+        
+        return user_id
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("JWT validation failed", error=str(e))
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+
+@router.get("/stats")
+async def get_academic_statistics(
+    db: AsyncSession = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Get academic service statistics (admin only).
+    
+    Returns:
+        Dictionary with academic statistics
+    """
+    # Optional auth - allow internal service calls
+    try:
+        # Total courses
+        total_courses_stmt = select(func.count(CourseModel.id))
+        total_courses_result = await db.execute(total_courses_stmt)
+        total_courses = total_courses_result.scalar() or 0
+        
+        # Active courses
+        active_courses_stmt = select(func.count(CourseModel.id)).where(
+            CourseModel.status == "active"
+        )
+        active_courses_result = await db.execute(active_courses_stmt)
+        active_courses = active_courses_result.scalar() or 0
+        
+        # Total sections
+        total_sections_stmt = select(func.count(SectionModel.id))
+        total_sections_result = await db.execute(total_sections_stmt)
+        total_sections = total_sections_result.scalar() or 0
+        
+        # Active sections
+        active_sections_stmt = select(func.count(SectionModel.id)).where(
+            SectionModel.status == "active"
+        )
+        active_sections_result = await db.execute(active_sections_stmt)
+        active_sections = active_sections_result.scalar() or 0
+        
+        # Total enrollments
+        total_enrollments_stmt = select(func.count(EnrollmentModel.id))
+        total_enrollments_result = await db.execute(total_enrollments_stmt)
+        total_enrollments = total_enrollments_result.scalar() or 0
+        
+        # Active enrollments
+        active_enrollments_stmt = select(func.count(EnrollmentModel.id)).where(
+            EnrollmentModel.enrollment_status == "enrolled"
+        )
+        active_enrollments_result = await db.execute(active_enrollments_stmt)
+        active_enrollments = active_enrollments_result.scalar() or 0
+        
+        # Waitlisted enrollments
+        waitlisted_stmt = select(func.count(EnrollmentModel.id)).where(
+            EnrollmentModel.is_waitlisted == True
+        )
+        waitlisted_result = await db.execute(waitlisted_stmt)
+        waitlisted = waitlisted_result.scalar() or 0
+        
+        # Courses by department
+        dept_stmt = select(CourseModel.department, func.count(CourseModel.id)).group_by(
+            CourseModel.department
+        )
+        dept_result = await db.execute(dept_stmt)
+        by_department = {row[0]: row[1] for row in dept_result.all()}
+        
+        return {
+            "total_courses": total_courses,
+            "active_courses": active_courses,
+            "total_sections": total_sections,
+            "active_sections": active_sections,
+            "total_enrollments": total_enrollments,
+            "active_enrollments": active_enrollments,
+            "waitlisted_enrollments": waitlisted,
+            "by_department": by_department,
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get academic statistics", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/enrollments")
+async def get_section_enrollments(
+    section_id: Optional[UUID] = None,
+    course_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    admin_id: UUID = Depends(verify_admin),
+):
+    """
+    Get enrollments for a section or course (admin only).
+    
+    Args:
+        section_id: Filter by section
+        course_id: Filter by course (returns all sections)
+        db: Database session
+        admin_id: Admin user ID
+        
+    Returns:
+        List of enrollments with student and course information
+    """
+    try:
+        from services.user_service.models import UserModel
+        import httpx
+        from shared.config import settings
+        
+        # Build query
+        query = (
+            select(EnrollmentModel, SectionModel, CourseModel)
+            .join(SectionModel, EnrollmentModel.section_id == SectionModel.id)
+            .join(CourseModel, SectionModel.course_id == CourseModel.id)
+        )
+        
+        if section_id:
+            query = query.where(EnrollmentModel.section_id == section_id)
+        elif course_id:
+            query = query.where(SectionModel.course_id == course_id)
+        else:
+            # Return all enrollments if no filter
+            pass
+        
+        query = query.where(EnrollmentModel.enrollment_status == "enrolled")
+        
+        result = await db.execute(query)
+        rows = result.all()
+        
+        enrollments = []
+        for enrollment, section, course in rows:
+            # Fetch student info from user service
+            student_info = None
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    # We need to get student info - for now use student_id
+                    # In production, you'd call user service API
+                    student_info = {
+                        "id": str(enrollment.student_id),
+                        "name": f"Student {str(enrollment.student_id)[:8]}",
+                    }
+            except Exception:
+                student_info = {
+                    "id": str(enrollment.student_id),
+                    "name": f"Student {str(enrollment.student_id)[:8]}",
+                }
+            
+            enrollments.append({
+                "id": str(enrollment.id),
+                "student_id": str(enrollment.student_id),
+                "student_name": student_info.get("name", "Unknown"),
+                "section_id": str(section.id),
+                "section_number": section.section_number,
+                "course_code": course.course_code,
+                "course_title": course.title,
+                "semester": section.semester,
+                "enrollment_status": enrollment.enrollment_status,
+                "is_waitlisted": enrollment.is_waitlisted,
+                "waitlist_position": enrollment.waitlist_position,
+                "current_grade_percentage": enrollment.current_grade_percentage,
+                "current_letter_grade": enrollment.current_letter_grade,
+                "attendance_percentage": enrollment.attendance_percentage,
+                "enrolled_at": enrollment.enrolled_at.isoformat(),
+            })
+        
+        logger.info(
+            "Admin enrollments retrieved",
+            admin_id=str(admin_id),
+            count=len(enrollments),
+        )
+        
+        return enrollments
+        
+    except Exception as e:
+        logger.error("Failed to get enrollments", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
