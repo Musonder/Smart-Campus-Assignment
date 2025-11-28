@@ -10,10 +10,6 @@ authors = [{name = "Smart Campus Team"}]
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-
-[tool.setuptools]
-packages = ["shared", "services", "ml"]
-
 dependencies = [
     # Core Framework
     "fastapi>=0.109.0",
@@ -68,6 +64,9 @@ dependencies = [
     "opentelemetry-api>=1.22.0",
     "opentelemetry-sdk>=1.22.0",
 ]
+
+[tool.setuptools]
+packages = ["shared", "services", "ml"]
 
 [project.optional-dependencies]
 dev = [
