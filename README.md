@@ -7,12 +7,11 @@ This repository implements the **“Argos: A Federated, Adaptive Smart Campus Or
 - How to install Python dependencies (`requirements-quick.txt`, `requirements.txt`, `pyproject.toml`).
 - How to start Docker (Postgres, MongoDB, Redis, Kafka, etc.) using `docker-compose.yml` and `READY_TO_RUN.md`.
 - How to run all services and the frontend with `START_ALL.bat`.
-- How to set up the INGInious/external grader (`INGInious/` + `config.env.example`).
-- How to run tests and what’s needed for the assignment (stress tests, pen‑tests, CI).
+- How to run tests and what's needed for the assignment (stress tests, pen‑tests, CI).
 
 This `README.md` is intentionally short so tools that expect a `README` still work, while all detailed instructions and assignment mapping live in:
 
-- `README_FIRST.md` – **main getting-started & operations guide** (Docker, INGInious, requirements, demo flows).
+- `README_FIRST.md` – **main getting-started & operations guide** (Docker, requirements, demo flows).
 - `READY_TO_RUN.md` – **Docker & environment setup**.
 - `ASSIGNMENT_COMPLIANCE.md` / `ASSIGNMENT_VERIFICATION.md` – how the code satisfies the assignment rubric and how to demo it.
 - `API_ENDPOINTS.md` – full REST API reference with example requests.

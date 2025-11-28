@@ -97,39 +97,7 @@ If you prefer manual control, see `READY_TO_RUN.md` for individual commands.
 
 ---
 
-## 5. INGInious / External Grader setup
-
-Assignments are auto‑graded by an **external grader** (e.g. INGInious) via the `external_task_id` field.
-
-### 5.1 Run INGInious stack
-
-```bash
-cd INGInious
-docker compose up -d
-```
-
-This uses the `INGInious/docker-compose.yml` to start the standard INGInious services.
-
-### 5.2 Configure Argos → external grader
-
-In your environment (or `.env`), set the variables (see `config.env.example` lines 12–16):
-
-```env
-EXTERNAL_GRADER_ENABLED=true
-EXTERNAL_GRADER_BASE_URL=http://localhost:9000    # your adapter base URL
-EXTERNAL_GRADER_API_KEY=some-secret-if-you-want
-```
-
-Argos will:
-
-- Call `EXTERNAL_GRADER_BASE_URL + "/api/grade"` for auto‑grading submissions.
-- Call `EXTERNAL_GRADER_BASE_URL + "/api/tasks"` (via `/api/v1/academic/assignments/external-tasks`) to **auto‑fetch task IDs** for lecturers.
-
-Your adapter is responsible for mapping `external_task_id` to INGInious tasks.
-
----
-
-## 6. Running ML / Analytics
+## 5. Running ML / Analytics
 
 The system runs **without** heavy ML dependencies by using rule‑based fallbacks.
 
@@ -166,14 +134,12 @@ These are the key docs for the assignment; everything else is additional detail.
   - `IMPLEMENTATION_SUMMARY.md` – summary of frontend implementation.
 
 - **System status & architecture**:  
-  - `SYSTEM_STATUS.md` – what’s implemented and how to verify it.
+  - `SYSTEM_STATUS.md` – what's implemented and how to verify it.
   - `docs/README.md` – any additional deep‑dive technical notes.
-
-For INGInious internal docs, see under `INGInious/doc/` (official docs from the upstream project).
 
 ---
 
-## 8. How to run tests & CI
+## 6. How to run tests & CI
 
 With the virtualenv active:
 
@@ -192,7 +158,7 @@ GitHub Actions CI is configured in:
 
 ---
 
-## 9. Optional tools (stress & security tests)
+## 7. Optional tools (stress & security tests)
 
 From project root (with API Gateway + services running):
 
