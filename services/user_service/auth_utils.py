@@ -70,22 +70,35 @@ class JWTManager:
         user_id: UUID,
         email: str,
         roles: list[str],
+        user_type: Optional[str] = None,
         expires_delta: Optional[timedelta] = None,
     ) -> str:
         """
-        Create JWT access token.
+        Create JWT access token with role-based expiration.
         
         Args:
             user_id: User UUID
             email: User email
             roles: User roles
-            expires_delta: Token expiration time
+            user_type: User type (student, lecturer, staff, admin)
+            expires_delta: Token expiration time (overrides role-based default)
             
         Returns:
             str: JWT token
         """
         if expires_delta is None:
-            expires_delta = timedelta(minutes=settings.jwt_access_token_expire_minutes)
+            # Role-based expiration times (in minutes)
+            role_expiry = {
+                "student": 60,  # 1 hour
+                "lecturer": 120,  # 2 hours
+                "staff": 90,  # 1.5 hours
+                "admin": 30,  # 30 minutes (shorter for security)
+            }
+            
+            if user_type and user_type.lower() in role_expiry:
+                expires_delta = timedelta(minutes=role_expiry[user_type.lower()])
+            else:
+                expires_delta = timedelta(minutes=settings.jwt_access_token_expire_minutes)
 
         expire = datetime.utcnow() + expires_delta
 

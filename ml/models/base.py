@@ -11,6 +11,8 @@ from pathlib import Path
 import torch
 import structlog
 
+from ml.models.versioning import get_model_registry, ModelRegistry
+
 logger = structlog.get_logger(__name__)
 
 
@@ -34,6 +36,8 @@ class BaseMLModel(ABC):
         self.version = version
         self.model: Optional[Any] = None
         self.is_trained = False
+        self.registry: Optional[ModelRegistry] = None
+        self._seed: Optional[int] = None
 
     @abstractmethod
     async def train(self, training_data: Any, validation_data: Optional[Any] = None, **kwargs) -> dict[str, Any]:
@@ -80,12 +84,13 @@ class BaseMLModel(ABC):
         """
         pass
 
-    async def save(self, path: Path) -> None:
+    async def save(self, path: Path, register_version: bool = True) -> None:
         """
-        Save model to disk.
+        Save model to disk and optionally register version.
         
         Args:
             path: Path to save model
+            register_version: Whether to register this version in the model registry
         """
         if self.model is None:
             raise ValueError("No model to save")
@@ -99,9 +104,27 @@ class BaseMLModel(ABC):
                 'model_name': self.model_name,
                 'version': self.version,
                 'is_trained': self.is_trained,
+                'seed': self._seed,
             }, path)
 
             logger.info("Model saved", model_name=self.model_name, path=str(path))
+        
+        # Register version in registry
+        if register_version:
+            if self.registry is None:
+                self.registry = get_model_registry()
+            
+            metadata = {
+                'is_trained': self.is_trained,
+                'seed': self._seed,
+            }
+            
+            self.registry.register_version(
+                model_name=self.model_name,
+                version=self.version,
+                model_path=path,
+                metadata=metadata,
+            )
 
     async def load(self, path: Path) -> None:
         """
@@ -124,14 +147,30 @@ class BaseMLModel(ABC):
 
     def set_deterministic(self, seed: int = 42) -> None:
         """
-        Set deterministic behavior for reproducible results (testing).
+        Set deterministic behavior for reproducibility.
+        
+        Seeds all random number generators (PyTorch, NumPy, Python).
+        Critical for unit tests and reproducible research.
         
         Args:
-            seed: Random seed
+            seed: Random seed value
         """
+        import random
+        import numpy as np
+        
+        # Set Python random seed
+        random.seed(seed)
+        
+        # Set NumPy random seed
+        np.random.seed(seed)
+        
+        # Set PyTorch random seeds
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
-
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        
+        self._seed = seed
         logger.info("Deterministic mode enabled", seed=seed)
 

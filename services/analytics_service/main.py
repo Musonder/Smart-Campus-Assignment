@@ -177,13 +177,29 @@ async def predict_enrollment(request: EnrollmentPredictionRequest) -> Enrollment
         else:
             risk_level = "high"
         
+        from shared.resilience.ml_fallback import rule_based_enrollment_prediction
+        
+        # Use enhanced rule-based prediction
+        student_data = {
+            "gpa": request.gpa,
+            "credits_enrolled": request.credits_enrolled,
+            "attendance_rate": request.attendance_rate,
+            "engagement_score": request.engagement_score,
+            "previous_dropout_risk": request.previous_dropout_risk,
+            "course_difficulty": request.course_difficulty,
+            "study_hours": request.study_hours,
+            "num_failed_courses": request.num_failed_courses,
+        }
+        
+        prediction = rule_based_enrollment_prediction(student_data)
+        
         return EnrollmentPredictionResponse(
             student_id=request.student_id,
-            dropout_probability=risk_score,
-            retention_probability=1 - risk_score,
-            risk_level=risk_level,
-            confidence=0.6,  # Lower confidence for rule-based
-            explanation={"message": "Rule-based fallback prediction (ML packages not installed)"} if request.explain else None,
+            dropout_probability=prediction["dropout_probability"],
+            retention_probability=prediction["retention_probability"],
+            risk_level=prediction["risk_level"],
+            confidence=prediction["confidence"],
+            explanation=prediction["explanation"] if request.explain else None,
         )
     
     logger.info("Enrollment prediction request", student_id=request.student_id)
@@ -239,26 +255,26 @@ async def optimize_room_allocation(request: RoomOptimizationRequest) -> RoomOpti
     Returns:
         Optimal allocation with metrics
     """
-    # Fallback to greedy allocation if ML not available
+    # Fallback to rule-based allocation if ML not available
     if not ML_AVAILABLE or room_optimizer is None:
-        logger.warning("Using greedy fallback for room optimization")
+        logger.warning("Using rule-based fallback for room optimization")
         
-        # Simple greedy allocation: assign sections to first-fit room
-        allocation = {}
-        metrics = {"total_energy_cost": 0.0, "total_travel_time": 0.0, "utilization_rate": 0.0}
+        from shared.resilience.ml_fallback import rule_based_room_optimization
         
-        for section in request.sections:
-            for room in request.rooms:
-                if room["capacity"] >= section["enrollment"]:
-                    allocation[section["section_id"]] = room["room_id"]
-                    break
+        # Use enhanced rule-based optimization
+        request_data = {
+            "sections": request.sections,
+            "rooms": request.rooms,
+        }
+        
+        result = rule_based_room_optimization(request_data)
         
         return RoomOptimizationResponse(
-            allocation=allocation,
-            metrics=metrics,
-            num_sections_allocated=len(allocation),
-            num_violations=max(0, len(request.sections) - len(allocation)),
-            explanation={"message": "Greedy first-fit allocation (ML packages not installed)"} if request.explain else None,
+            allocation=result["allocation"],
+            metrics=result["metrics"],
+            num_sections_allocated=result["num_sections_allocated"],
+            num_violations=result["num_violations"],
+            explanation=result["explanation"] if request.explain else None,
         )
     
     logger.info(

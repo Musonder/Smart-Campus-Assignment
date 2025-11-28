@@ -1,36 +1,33 @@
 """
-Event Sourcing Infrastructure
+Event System for Event-Driven Architecture
 
-Core event definitions and event store for CQRS pattern implementation.
+Provides event sourcing, publish/subscribe, and event streaming capabilities.
 """
 
-from shared.events.base import Event, DomainEvent, EventMetadata
-from shared.events.academic_events import (
-    CourseCreatedEvent,
-    SectionCreatedEvent,
-    StudentEnrolledEvent,
-    StudentWaitlistedEvent,
-    GradeAssignedEvent,
+from shared.events.base import (
+    Event,
+    DomainEvent,
+    EventMetadata,
+    EventEnvelope,
+    Snapshot,
 )
-from shared.events.security_events import (
-    UserAuthenticatedEvent,
-    AccessGrantedEvent,
-    AccessDeniedEvent,
-    SecurityIncidentEvent,
+from shared.events.stream import (
+    EventStream,
+    EventStreamManager,
+    EventSubscriber,
+    get_event_stream_manager,
 )
 
 __all__ = [
+    # Base Events
     "Event",
     "DomainEvent",
     "EventMetadata",
-    "CourseCreatedEvent",
-    "SectionCreatedEvent",
-    "StudentEnrolledEvent",
-    "StudentWaitlistedEvent",
-    "GradeAssignedEvent",
-    "UserAuthenticatedEvent",
-    "AccessGrantedEvent",
-    "AccessDeniedEvent",
-    "SecurityIncidentEvent",
+    "EventEnvelope",
+    "Snapshot",
+    # Event Streaming
+    "EventStream",
+    "EventStreamManager",
+    "EventSubscriber",
+    "get_event_stream_manager",
 ]
-

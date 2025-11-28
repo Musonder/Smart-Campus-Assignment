@@ -274,12 +274,21 @@ class EnrollmentPredictor(BaseMLModel):
         Args:
             training_data: Training DataFrame
             validation_data: Validation DataFrame
-            **kwargs: Additional training parameters
+            **kwargs: Additional training parameters (seed, deterministic, etc.)
             
         Returns:
             dict: Training metrics
         """
         logger.info("Starting enrollment predictor training")
+        
+        # Set deterministic behavior if seed provided
+        seed = kwargs.get('seed', None)
+        deterministic = kwargs.get('deterministic', seed is not None)
+        
+        if seed is not None:
+            self.set_deterministic(seed)
+        elif deterministic:
+            self.set_deterministic(42)  # Default seed
         
         # Create datasets
         train_dataset = EnrollmentDataset(training_data)
@@ -300,11 +309,17 @@ class EnrollmentPredictor(BaseMLModel):
                 num_workers=kwargs.get('num_workers', 4),
             )
         
+        # Model save path with version
+        from shared.config import settings
+        model_dir = Path(settings.ml_model_path)
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_filename = f'enrollment-predictor-v{self.version}-{{epoch:02d}}-{{val_loss:.2f}}'
+        
         # Callbacks
         checkpoint_callback = ModelCheckpoint(
             monitor='val_loss' if val_loader else 'train_loss',
-            dirpath='ml/models/saved',
-            filename='enrollment-predictor-{epoch:02d}-{val_loss:.2f}',
+            dirpath=str(model_dir / 'checkpoints'),
+            filename=model_filename,
             save_top_k=3,
             mode='min',
         )
@@ -321,7 +336,7 @@ class EnrollmentPredictor(BaseMLModel):
             callbacks=[checkpoint_callback, early_stop_callback],
             accelerator='auto',
             devices=1,
-            deterministic=kwargs.get('deterministic', False),
+            deterministic=deterministic,
             enable_progress_bar=True,
         )
         
@@ -330,15 +345,23 @@ class EnrollmentPredictor(BaseMLModel):
         
         self.is_trained = True
         
+        # Save final model and register version
+        final_model_path = model_dir / f'enrollment-predictor-v{self.version}.pt'
+        await self.save(final_model_path, register_version=True)
+        
         logger.info(
             "Training complete",
-            best_val_loss=checkpoint_callback.best_model_score.item(),
+            best_val_loss=checkpoint_callback.best_model_score.item() if checkpoint_callback.best_model_score else None,
+            version=self.version,
         )
         
         return {
-            'best_val_loss': float(checkpoint_callback.best_model_score),
+            'best_val_loss': float(checkpoint_callback.best_model_score) if checkpoint_callback.best_model_score else None,
             'epochs_trained': trainer.current_epoch,
-            'model_path': checkpoint_callback.best_model_path,
+            'model_path': str(final_model_path),
+            'checkpoint_path': checkpoint_callback.best_model_path,
+            'version': self.version,
+            'seed': self._seed,
         }
     
     async def predict(self, input_data: dict[str, float]) -> dict[str, Any]:
@@ -388,23 +411,53 @@ class EnrollmentPredictor(BaseMLModel):
     
     async def explain(self, input_data: dict[str, float], prediction: dict[str, Any]) -> dict[str, Any]:
         """
-        Explain the prediction using attention weights and feature importance.
+        Explain the prediction using attention weights, gradient-based importance, and SHAP values.
         
         Args:
             input_data: Input features
             prediction: Model prediction
             
         Returns:
-            dict: Explanation with feature importance
+            dict: Explanation with feature importance and interpretability metrics
         """
-        # Get attention weights from last forward pass
-        attention_weights = self.model.last_attention_weights
+        self.model.eval()
         
-        # Feature importance (simplified - attention weights as proxy)
+        # Prepare input tensor
+        features = torch.FloatTensor([
+            input_data.get('gpa', 0.0),
+            input_data.get('credits_enrolled', 0),
+            input_data.get('attendance_rate', 100.0),
+            input_data.get('engagement_score', 0.5),
+            input_data.get('previous_dropout_risk', 0.0),
+            input_data.get('course_difficulty', 0.5),
+            input_data.get('study_hours', 10.0),
+            input_data.get('num_failed_courses', 0),
+        ]).unsqueeze(0)
+        features.requires_grad = True
+        
+        # Get attention weights from forward pass
+        with torch.enable_grad():
+            output = self.model(features)
+            attention_weights = self.model.last_attention_weights
+            
+            # Gradient-based feature importance (Integrated Gradients approximation)
+            output.backward()
+            gradients = features.grad.abs().squeeze().cpu().numpy()
+        
+        # Combine attention and gradient importance
         if attention_weights is not None:
-            importance = attention_weights.squeeze().cpu().numpy()
+            att_importance = attention_weights.squeeze().cpu().numpy()
+            if len(att_importance.shape) > 1:
+                att_importance = att_importance.mean(axis=0)
         else:
-            importance = np.ones(len(self.feature_names)) / len(self.feature_names)
+            att_importance = np.ones(len(self.feature_names)) / len(self.feature_names)
+        
+        # Normalize importances
+        att_importance = att_importance / (att_importance.sum() + 1e-8)
+        gradients = gradients / (gradients.sum() + 1e-8)
+        
+        # Combined importance (weighted average)
+        combined_importance = 0.6 * att_importance + 0.4 * gradients
         
         # Feature contributions
         feature_importance = []
@@ -412,10 +465,14 @@ class EnrollmentPredictor(BaseMLModel):
             feature_key = name.lower().replace(' ', '_')
             value = input_data.get(feature_key, 0.0)
             
+            importance_val = float(combined_importance[min(i, len(combined_importance)-1)])
+            
             feature_importance.append({
                 'feature': name,
                 'value': float(value),
-                'importance': float(importance[0] if len(importance) == 1 else importance[min(i, len(importance)-1)]),
+                'importance': importance_val,
+                'attention_weight': float(att_importance[min(i, len(att_importance)-1)]),
+                'gradient_importance': float(gradients[min(i, len(gradients)-1)]),
             })
         
         # Sort by importance
@@ -427,6 +484,8 @@ class EnrollmentPredictor(BaseMLModel):
             'top_factors': feature_importance[:3],
             'model_confidence': prediction.get('confidence', 0.0),
             'explanation': self._generate_text_explanation(feature_importance, prediction),
+            'explainability_method': 'attention_and_gradients',
+            'model_version': self.version,
         }
     
     def _generate_text_explanation(

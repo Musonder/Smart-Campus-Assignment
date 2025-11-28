@@ -8,7 +8,7 @@ import structlog
 
 from shared.config import settings
 from shared.database import init_db, init_mongodb
-from services.academic_service.api import courses, sections, enrollments, lecturer, admin, grades
+from services.academic_service.api import courses, sections, enrollments, lecturer, admin, grades, assignments
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +51,7 @@ app.include_router(courses.router, prefix="/api/v1/courses", tags=["Courses"])
 app.include_router(sections.router, prefix="/api/v1/sections", tags=["Sections"])
 app.include_router(enrollments.router, prefix="/api/v1/enrollments", tags=["Enrollments"])
 app.include_router(grades.router, prefix="/api/v1/academic", tags=["Grades"])
+app.include_router(assignments.router, prefix="/api/v1", tags=["Assignments"])
 app.include_router(lecturer.router, prefix="/api/v1", tags=["Lecturer"])
 app.include_router(admin.router, prefix="/api/v1", tags=["Admin"])
 

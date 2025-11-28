@@ -207,12 +207,21 @@ class RoomUsageOptimizer(BaseMLModel):
         Args:
             training_data: Environment configuration
             validation_data: Validation environments
-            **kwargs: Training parameters
+            **kwargs: Training parameters (seed, deterministic, etc.)
             
         Returns:
             dict: Training results
         """
         logger.info("Starting room optimizer training with PPO")
+        
+        # Set deterministic behavior if seed provided
+        seed = kwargs.get('seed', None)
+        deterministic = kwargs.get('deterministic', seed is not None)
+        
+        if seed is not None:
+            self.set_deterministic(seed)
+        elif deterministic:
+            self.set_deterministic(42)  # Default seed
         
         # Training configuration
         num_iterations = kwargs.get('num_iterations', 100)
@@ -225,7 +234,9 @@ class RoomUsageOptimizer(BaseMLModel):
             iteration_rewards = []
             
             for episode in range(episodes_per_iteration):
-                state, _ = self.env.reset()
+                # Use seed for deterministic environment resets
+                env_seed = seed + iteration * episodes_per_iteration + episode if seed is not None else None
+                state, _ = self.env.reset(seed=env_seed)
                 episode_reward = 0
                 terminated = False
                 
@@ -249,11 +260,24 @@ class RoomUsageOptimizer(BaseMLModel):
         
         self.is_trained = True
         
+        # Save model and register version
+        from shared.config import settings
+        from pathlib import Path
+        model_dir = Path(settings.ml_model_path)
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_dir / f'room-optimizer-v{self.version}.pt'
+        
+        # Save policy state (placeholder - would save actual PPO policy)
+        await self.save(model_path, register_version=True)
+        
         return {
             'final_average_reward': float(np.mean(total_rewards[-10:])),
             'best_reward': float(max(total_rewards)),
             'training_iterations': num_iterations,
             'reward_history': [float(r) for r in total_rewards],
+            'version': self.version,
+            'seed': self._seed,
+            'model_path': str(model_path),
         }
     
     async def predict(self, input_data: dict[str, Any]) -> dict[str, Any]:
@@ -322,29 +346,66 @@ class RoomUsageOptimizer(BaseMLModel):
     
     async def explain(self, input_data: dict[str, Any], prediction: dict[str, Any]) -> dict[str, Any]:
         """
-        Explain room allocation decisions.
+        Explain room allocation decisions with detailed reasoning.
         
         Args:
-            input_data: Input data
+            input_data: Input data (sections, rooms)
             prediction: Allocation prediction
             
         Returns:
-            dict: Explanation of decisions
+            dict: Explanation of decisions with optimization rationale
         """
         allocation = prediction['allocation']
         metrics = prediction['metrics']
+        sections = input_data.get('sections', [])
+        rooms = input_data.get('rooms', [])
         
         explanations = []
         
         for section_id, room_id in allocation.items():
+            section = sections[section_id] if section_id < len(sections) else {}
+            room = rooms[room_id] if room_id < len(rooms) else {}
+            
+            reasons = []
+            
+            # Capacity analysis
+            if 'size' in section and 'capacity' in room:
+                utilization = section['size'] / room['capacity']
+                if utilization > 0.9:
+                    reasons.append(f'High utilization ({utilization:.1%}) - efficient use of space')
+                elif utilization > 0.7:
+                    reasons.append(f'Good utilization ({utilization:.1%}) - balanced occupancy')
+                else:
+                    reasons.append(f'Sufficient capacity ({utilization:.1%} utilization)')
+            
+            # Energy efficiency
+            if 'energy_efficiency' in room:
+                eff = room['energy_efficiency']
+                if eff > 0.8:
+                    reasons.append(f'High energy efficiency ({eff:.1%}) - low operational cost')
+                elif eff > 0.5:
+                    reasons.append(f'Moderate energy efficiency ({eff:.1%})')
+                else:
+                    reasons.append(f'Lower energy efficiency ({eff:.1%}) - acceptable trade-off')
+            
+            # Travel distance
+            if 'location' in section and 'location' in room:
+                distance = np.linalg.norm(
+                    np.array(section['location']) - np.array(room['location'])
+                )
+                if distance < 0.2:
+                    reasons.append(f'Minimal travel distance ({distance:.2f} units) - convenient location')
+                elif distance < 0.5:
+                    reasons.append(f'Reasonable travel distance ({distance:.2f} units)')
+                else:
+                    reasons.append(f'Longer travel distance ({distance:.2f} units) - capacity/energy trade-off')
+            
             explanation = {
                 'section_id': section_id,
                 'assigned_room': room_id,
-                'reasons': [
-                    'Sufficient capacity',
-                    'Good energy efficiency',
-                    'Minimal travel distance',
-                ],
+                'reasons': reasons,
+                'section_size': section.get('size', 'N/A'),
+                'room_capacity': room.get('capacity', 'N/A'),
             }
             explanations.append(explanation)
         
@@ -359,5 +420,7 @@ class RoomUsageOptimizer(BaseMLModel):
             ],
             'summary': f"Allocated {len(allocation)} sections with {metrics['constraint_violations']} violations. "
                       f"Success rate: {metrics['success_rate']:.1%}",
+            'explainability_method': 'constraint_satisfaction_and_optimization',
+            'model_version': self.version,
         }
 

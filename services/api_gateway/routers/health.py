@@ -1,66 +1,19 @@
 """
-Health Check Router
-
-Provides health and readiness endpoints for monitoring.
+Health check endpoint with circuit breaker status.
 """
 
-from datetime import datetime
-
-from fastapi import APIRouter, status
-from pydantic import BaseModel
+from fastapi import APIRouter
+from shared.resilience.circuit_breaker import circuit_breaker_manager
 
 router = APIRouter()
 
 
-class HealthResponse(BaseModel):
-    """Health check response model."""
-
-    status: str
-    timestamp: datetime
-    version: str
-    services: dict[str, str]
-
-
-@router.get("/", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
+@router.get("/circuit-breakers")
+async def get_circuit_breaker_status():
     """
-    Basic health check endpoint.
+    Get status of all circuit breakers.
     
     Returns:
-        HealthResponse: Service health status
+        Dictionary of circuit breaker statistics
     """
-    return HealthResponse(
-        status="healthy",
-        timestamp=datetime.utcnow(),
-        version="0.1.0",
-        services={
-            "api_gateway": "healthy",
-            "database": "healthy",
-            "cache": "healthy",
-            "event_store": "healthy",
-        },
-    )
-
-
-@router.get("/ready")
-async def readiness_check() -> dict[str, str]:
-    """
-    Readiness check for Kubernetes.
-    
-    Returns:
-        dict: Readiness status
-    """
-    # In production, check actual service connectivity
-    return {"status": "ready"}
-
-
-@router.get("/live")
-async def liveness_check() -> dict[str, str]:
-    """
-    Liveness check for Kubernetes.
-    
-    Returns:
-        dict: Liveness status
-    """
-    return {"status": "alive"}
-
+    return circuit_breaker_manager.get_all_stats()

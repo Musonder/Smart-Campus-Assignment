@@ -151,3 +151,158 @@ class GradeModel(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
+
+class AssignmentModel(Base):
+    """Assignment for a course section (auto-gradable)."""
+
+    __tablename__ = "assignments"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    course_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("courses.id"), nullable=False, index=True
+    )
+    section_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("sections.id"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    type: Mapped[str] = mapped_column(String(50), default="auto", nullable=False)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    total_points: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+
+    # External grader linkage (e.g. INGInious task id)
+    external_task_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    created_by_lecturer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+
+    status: Mapped[str] = mapped_column(
+        String(20), default="active", nullable=False, index=True
+    )  # active, archived
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class SubmissionModel(Base):
+    """Student submission for an assignment."""
+
+    __tablename__ = "submissions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    assignment_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("assignments.id"), nullable=False, index=True
+    )
+    student_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
+
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Raw answer payload (JSON-serializable structure as text)
+    raw_answer: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Auto-grader output
+    auto_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    auto_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Lecturer approval / override
+    lecturer_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    lecturer_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approved_by_lecturer_id: Mapped[Optional[UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    status: Mapped[str] = mapped_column(
+        String(20), default="submitted", nullable=False, index=True
+    )  # submitted, auto_graded, approved
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class QuestionModel(Base):
+    """Question bank for assignments (rule questions and course content questions)."""
+
+    __tablename__ = "questions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    course_id: Mapped[Optional[UUID]] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("courses.id"), nullable=True, index=True
+    )  # None = rule question (applies to all courses)
+    
+    question_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, index=True
+    )  # rule, course_content
+    
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_format: Mapped[str] = mapped_column(
+        String(20), default="multiple_choice", nullable=False
+    )  # multiple_choice, true_false, short_answer
+    
+    # Options for multiple choice / true-false
+    options: Mapped[dict] = mapped_column(JSON, nullable=True)  # {"A": "option1", "B": "option2", ...}
+    correct_answer: Mapped[str] = mapped_column(Text, nullable=False)  # "A", "B", "true", "false", or text
+    
+    points: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    # Metadata
+    created_by_lecturer_id: Mapped[Optional[UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+
+
+class AssignmentQuestionModel(Base):
+    """Links questions to assignments with random selection settings."""
+
+    __tablename__ = "assignment_questions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    assignment_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("assignments.id"), nullable=False, index=True
+    )
+    question_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("questions.id"), nullable=False, index=True
+    )
+    
+    # Random selection settings
+    is_random: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AnswerModel(Base):
+    """Student answer to a specific question within a submission."""
+
+    __tablename__ = "answers"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    submission_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("submissions.id"), nullable=False, index=True
+    )
+    question_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("questions.id"), nullable=False, index=True
+    )
+    student_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
+    
+    # Student's answer
+    answer_text: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Auto-grading result
+    is_correct: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    points_earned: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    points_possible: Mapped[float] = mapped_column(Float, nullable=False)
+    auto_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Lecturer override
+    lecturer_points_override: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    lecturer_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )

@@ -6,21 +6,12 @@
 
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { Users, Search, Edit, Loader2, BookOpen } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Users, Search, Loader2, BookOpen, ChevronDown, ChevronRight, ArrowUpDown, AlertTriangle, Mail } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -29,13 +20,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import apiClient, { getErrorMessage } from '@/lib/api-client'
+import apiClient from '@/lib/api-client'
 import { getGradeColor } from '@/lib/utils'
 
 interface Enrollment {
   id: string
   student_id: string
   student_name: string
+  student_email?: string
   section_id: string
   section_number: string
   course_code: string
@@ -48,6 +40,13 @@ interface Enrollment {
   current_letter_grade?: string
   attendance_percentage: number
   enrolled_at: string
+}
+
+interface StudentEnrollmentGroup {
+  student_id: string
+  student_name: string
+  student_email?: string
+  enrollments: Enrollment[]
 }
 
 interface Section {
@@ -67,21 +66,15 @@ interface Course {
   title: string
 }
 
-interface GradeForm {
-  student_id: string
-  section_id: string
-  points_earned: number
-  total_points: number
-  feedback: string
-  is_late: boolean
-}
-
 export function AdminEnrollmentsPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCourseId, setSelectedCourseId] = useState<string>(searchParams.get('course_id') || '')
   const [selectedSectionId, setSelectedSectionId] = useState<string>(searchParams.get('section_id') || '')
+  const [expandedStudents, setExpandedStudents] = useState<Record<string, boolean>>({})
+  const [sortMode, setSortMode] = useState<'name' | 'latest'>('name')
+  const [showAtRiskOnly, setShowAtRiskOnly] = useState(false)
   
   // Update URL when filters change
   useEffect(() => {
@@ -90,17 +83,6 @@ export function AdminEnrollmentsPage() {
     if (selectedSectionId) params.set('section_id', selectedSectionId)
     setSearchParams(params, { replace: true })
   }, [selectedCourseId, selectedSectionId, setSearchParams])
-  const [isGradeDialogOpen, setIsGradeDialogOpen] = useState(false)
-  const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null)
-  const [gradeForm, setGradeForm] = useState<GradeForm>({
-    student_id: '',
-    section_id: '',
-    points_earned: 0,
-    total_points: 100,
-    feedback: '',
-    is_late: false,
-  })
-
   // Fetch courses for filtering
   const { data: courses } = useQuery({
     queryKey: ['admin-courses'],
@@ -163,68 +145,76 @@ export function AdminEnrollmentsPage() {
     throwOnError: false, // Never throw errors - always return data
   })
 
-  // Create grade mutation - REAL API
-  const createGradeMutation = useMutation({
-    mutationFn: async (data: GradeForm) => {
-      const response = await apiClient.post('/api/v1/academic/grades', {
-        student_id: data.student_id,
-        section_id: data.section_id,
-        points_earned: data.points_earned,
-        total_points: data.total_points,
-        feedback: data.feedback || undefined,
-        is_late: data.is_late,
-      })
-      return response.data
-    },
-    onSuccess: () => {
-      toast.success('Grade assigned successfully')
-      queryClient.invalidateQueries({ queryKey: ['admin-enrollments'] })
-      queryClient.invalidateQueries({ queryKey: ['myEnrollments'] })
-      setIsGradeDialogOpen(false)
-      setSelectedEnrollment(null)
-      setGradeForm({
-        student_id: '',
-        section_id: '',
-        points_earned: 0,
-        total_points: 100,
-        feedback: '',
-        is_late: false,
-      })
-    },
-    onError: (error: any) => {
-      toast.error(getErrorMessage(error))
-    },
+  const normalizedEnrollments = Array.isArray(enrollments) ? enrollments : []
+
+  // Text search filter
+  const filteredEnrollments = normalizedEnrollments.filter((enrollment) => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return true
+
+    return (
+      enrollment.student_name.toLowerCase().includes(term) ||
+      enrollment.course_code.toLowerCase().includes(term) ||
+      enrollment.course_title.toLowerCase().includes(term)
+    )
   })
 
-  const handleAssignGrade = (enrollment: Enrollment) => {
-    setSelectedEnrollment(enrollment)
-    setGradeForm({
-      student_id: enrollment.student_id,
-      section_id: enrollment.section_id,
-      points_earned: enrollment.current_grade_percentage || 0,
-      total_points: 100,
-      feedback: '',
-      is_late: false,
-    })
-    setIsGradeDialogOpen(true)
+  // Group by student
+  const studentsMap = filteredEnrollments.reduce<Record<string, StudentEnrollmentGroup>>(
+    (acc, enrollment) => {
+      const existing = acc[enrollment.student_id]
+      if (existing) {
+        existing.enrollments.push(enrollment)
+      } else {
+        acc[enrollment.student_id] = {
+          student_id: enrollment.student_id,
+          student_name: enrollment.student_name,
+          student_email: enrollment.student_email,
+          enrollments: [enrollment],
+        }
+      }
+      return acc
+    },
+    {},
+  )
+
+  let groupedStudents = Object.values(studentsMap)
+
+  // At-risk filter: low attendance or low grade
+  if (showAtRiskOnly) {
+    groupedStudents = groupedStudents.filter((group) =>
+      group.enrollments.some(
+        (e) =>
+          e.attendance_percentage < 75 ||
+          (typeof e.current_grade_percentage === 'number' && e.current_grade_percentage < 50),
+      ),
+    )
   }
 
-  const handleSubmitGrade = () => {
-    if (!gradeForm.points_earned || !gradeForm.total_points) {
-      toast.error('Please enter points earned and total points')
-      return
+  // Sorting
+  groupedStudents = groupedStudents.sort((a, b) => {
+    if (sortMode === 'name') {
+      return a.student_name.localeCompare(b.student_name)
     }
-    createGradeMutation.mutate(gradeForm)
-  }
 
-  const filteredEnrollments = enrollments?.filter((enrollment) => {
-    const matchesSearch = searchTerm === '' ||
-      enrollment.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.course_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.course_title.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    return matchesSearch
+    // latest enrollment date (descending)
+    const latestA = Math.max(
+      ...a.enrollments.map((e) => new Date(e.enrolled_at).getTime() || 0),
+    )
+    const latestB = Math.max(
+      ...b.enrollments.map((e) => new Date(e.enrolled_at).getTime() || 0),
+    )
+    return latestB - latestA
   })
+
+  const uniqueStudentCount = groupedStudents.length
+  const totalEnrollments = filteredEnrollments.length
+
+  const averageGrade =
+    filteredEnrollments.length > 0
+      ? filteredEnrollments.reduce((sum, e) => sum + (e.current_grade_percentage || 0), 0) /
+        filteredEnrollments.length
+      : 0
 
   return (
     <div className="space-y-6">
@@ -306,8 +296,37 @@ export function AdminEnrollmentsPage() {
         <CardHeader>
           <CardTitle>Enrollments</CardTitle>
           <CardDescription>
-            {filteredEnrollments?.length || 0} enrollments found
+            {uniqueStudentCount === 0
+              ? 'No results for current filters'
+              : `${uniqueStudentCount} student${uniqueStudentCount !== 1 ? 's' : ''} • ${totalEnrollments} enrollment${totalEnrollments !== 1 ? 's' : ''} • Avg grade ${averageGrade.toFixed(1)}%`}
           </CardDescription>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+              onClick={() =>
+                setSortMode((prev) => (prev === 'name' ? 'latest' : 'name'))
+              }
+            >
+              <ArrowUpDown className="h-4 w-4" />
+              <span>
+                Sort by {sortMode === 'name' ? 'student name' : 'latest enrollment'}
+              </span>
+            </Button>
+            <button
+              type="button"
+              onClick={() => setShowAtRiskOnly((prev) => !prev)}
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs ${
+                showAtRiskOnly
+                  ? 'border-destructive text-destructive bg-destructive/5'
+                  : 'border-muted text-muted-foreground hover:border-destructive/60 hover:text-destructive'
+              }`}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              <span>{showAtRiskOnly ? 'Showing at-risk only' : 'Show at-risk students'}</span>
+            </button>
+          </div>
         </CardHeader>
         <CardContent>
           {(!selectedCourseId || selectedCourseId === 'all') && (!selectedSectionId || selectedSectionId === 'all') ? (
@@ -338,85 +357,151 @@ export function AdminEnrollmentsPage() {
                 Retry
               </Button>
             </div>
-          ) : filteredEnrollments && Array.isArray(filteredEnrollments) && filteredEnrollments.length > 0 ? (
+          ) : groupedStudents.length > 0 ? (
             <div className="space-y-4">
-              {filteredEnrollments.map((enrollment) => (
+              {groupedStudents.map((student) => (
                 <Card
-                  key={enrollment.id}
+                  key={student.student_id}
                   className="hover:shadow-md transition-shadow border-l-4 border-l-primary"
                 >
                   <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-xl font-bold text-foreground">
-                            {enrollment.student_name}
-                          </h3>
-                          <Badge variant="outline" className="font-mono">
-                            {enrollment.course_code}
-                          </Badge>
-                          <Badge variant="secondary">
-                            Section {enrollment.section_number}
-                          </Badge>
-                          {enrollment.is_waitlisted ? (
-                            <Badge variant="warning">
-                              Waitlist #{enrollment.waitlist_position}
-                            </Badge>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedStudents((prev) => ({
+                              ...prev,
+                              [student.student_id]: !prev[student.student_id],
+                            }))
+                          }
+                          className="mt-1 rounded-full p-1 hover:bg-muted transition-colors"
+                          aria-label={
+                            expandedStudents[student.student_id]
+                              ? 'Collapse student enrollments'
+                              : 'Expand student enrollments'
+                          }
+                        >
+                          {expandedStudents[student.student_id] ? (
+                            <ChevronDown className="h-4 w-4" />
                           ) : (
-                            <Badge variant="default">Enrolled</Badge>
+                            <ChevronRight className="h-4 w-4" />
                           )}
-                        </div>
-                        <h4 className="text-lg text-muted-foreground mb-2">
-                          {enrollment.course_title}
-                        </h4>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span>Semester: {enrollment.semester}</span>
-                          <span>•</span>
-                          <span>Enrolled: {new Date(enrollment.enrolled_at).toLocaleDateString()}</span>
+                        </button>
+                        <div>
+                          <h3 className="text-xl font-bold text-foreground">
+                            {student.student_name}
+                          </h3>
+                          <div className="flex flex-col gap-0.5 mt-1">
+                            {student.student_email && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Mail className="h-3 w-3" />
+                                <span>{student.student_email}</span>
+                              </div>
+                            )}
+                            <p className="text-[11px] font-mono text-muted-foreground">
+                              ID: {student.student_id.substring(0, 8)}...
+                            </p>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        {enrollment.current_letter_grade ? (
-                          <div className="text-right">
-                            <div className={`text-2xl font-bold ${getGradeColor(enrollment.current_letter_grade)}`}>
-                              {enrollment.current_letter_grade}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {enrollment.current_grade_percentage.toFixed(1)}%
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-right">
-                            <div className="text-sm text-muted-foreground">No grade</div>
-                          </div>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleAssignGrade(enrollment)}
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="secondary">
+                          {student.enrollments.length} enrollment
+                          {student.enrollments.length !== 1 ? 's' : ''}
+                        </Badge>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedStudents((prev) => ({
+                              ...prev,
+                              [student.student_id]: !prev[student.student_id],
+                            }))
+                          }
+                          className="text-xs text-primary hover:underline"
                         >
-                          <Edit className="h-4 w-4 mr-2" />
-                          {enrollment.current_letter_grade ? 'Update Grade' : 'Assign Grade'}
-                        </Button>
+                          {expandedStudents[student.student_id]
+                            ? 'Hide enrollments'
+                            : 'Show enrollments'}
+                        </button>
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Attendance</p>
-                        <p className="text-sm font-semibold">{enrollment.attendance_percentage.toFixed(1)}%</p>
+                  {expandedStudents[student.student_id] && (
+                    <CardContent className="pt-0 pb-4">
+                      <div className="space-y-3">
+                        {student.enrollments.map((enrollment) => (
+                          <div
+                            key={enrollment.id}
+                            className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border rounded-md p-3 bg-muted/40"
+                          >
+                            <div className="flex-1">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <Badge variant="outline" className="font-mono">
+                                  {enrollment.course_code}
+                                </Badge>
+                                <Badge variant="secondary">
+                                  Section {enrollment.section_number}
+                                </Badge>
+                                {enrollment.is_waitlisted ? (
+                                  <Badge variant="warning">
+                                    Waitlist #{enrollment.waitlist_position}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="default">Enrolled</Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                {enrollment.course_title}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mt-1">
+                                <span>Semester: {enrollment.semester}</span>
+                                <span>•</span>
+                                <span>
+                                  Enrolled:{' '}
+                                  {new Date(enrollment.enrolled_at).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4">
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Attendance
+                                </p>
+                                <p className="text-sm font-semibold">
+                                  {enrollment.attendance_percentage.toFixed(1)}%
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Grade
+                                </p>
+                                {enrollment.current_letter_grade ? (
+                                  <div className="text-right">
+                                    <div
+                                      className={`text-lg font-bold ${getGradeColor(
+                                        enrollment.current_letter_grade,
+                                      )}`}
+                                    >
+                                      {enrollment.current_letter_grade}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {enrollment.current_grade_percentage.toFixed(1)}%
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-sm text-muted-foreground">No grade</div>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground max-w-[220px]">
+                                Grades are maintained by course lecturers. This view is read-only.
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Status</p>
-                        <p className="text-sm font-semibold capitalize">{enrollment.enrollment_status}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Student ID</p>
-                        <p className="text-sm font-mono text-xs">{enrollment.student_id.substring(0, 8)}...</p>
-                      </div>
-                    </div>
-                  </CardContent>
+                    </CardContent>
+                  )}
                 </Card>
               ))}
             </div>
@@ -436,80 +521,7 @@ export function AdminEnrollmentsPage() {
         </CardContent>
       </Card>
 
-      {/* Assign Grade Dialog */}
-      <Dialog open={isGradeDialogOpen} onOpenChange={setIsGradeDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign Grade</DialogTitle>
-            <DialogDescription>
-              Assign grade for {selectedEnrollment?.student_name} in {selectedEnrollment?.course_code}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="grade-points-earned">Points Earned *</Label>
-                <Input
-                  id="grade-points-earned"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={gradeForm.points_earned}
-                  onChange={(e) => setGradeForm({ ...gradeForm, points_earned: parseFloat(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="grade-total-points">Total Points *</Label>
-                <Input
-                  id="grade-total-points"
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  value={gradeForm.total_points}
-                  onChange={(e) => setGradeForm({ ...gradeForm, total_points: parseFloat(e.target.value) || 100 })}
-                />
-              </div>
-            </div>
-            {gradeForm.total_points > 0 && (
-              <div className="p-3 bg-muted/50 rounded-lg">
-                <p className="text-sm font-medium text-muted-foreground mb-1">Calculated Grade</p>
-                <p className="text-2xl font-bold text-foreground">
-                  {((gradeForm.points_earned / gradeForm.total_points) * 100).toFixed(1)}%
-                </p>
-              </div>
-            )}
-            <div className="grid gap-2">
-              <Label htmlFor="grade-feedback">Feedback (Optional)</Label>
-              <textarea
-                id="grade-feedback"
-                className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={gradeForm.feedback}
-                onChange={(e) => setGradeForm({ ...gradeForm, feedback: e.target.value })}
-                placeholder="Enter feedback for the student..."
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="grade-late"
-                checked={gradeForm.is_late}
-                onChange={(e) => setGradeForm({ ...gradeForm, is_late: e.target.checked })}
-                className="rounded border-gray-300"
-              />
-              <Label htmlFor="grade-late">Mark as late submission</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsGradeDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmitGrade} disabled={createGradeMutation.isPending}>
-              {createGradeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Assign Grade
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Admin view is read-only for grades; lecturers manage grading from their dashboard. */}
     </div>
   )
 }

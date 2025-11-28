@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GraduationCap, Loader2, Users, Building2, Shield, BookOpen } from 'lucide-react'
+import { GraduationCap, Loader2, Building2, Shield, BookOpen, Eye, EyeOff } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,18 @@ import {
 import { authService, RegisterRequest } from '@/services/auth.service'
 import { getErrorMessage } from '@/lib/api-client'
 
+// Department and Major Course mapping
+const DEPARTMENTS_AND_MAJORS = {
+  'Computer Science': ['Software Engineering', 'Data Science', 'Artificial Intelligence', 'Cybersecurity', 'Computer Networks'],
+  'Engineering': ['Mechanical Engineering', 'Electrical Engineering', 'Civil Engineering', 'Chemical Engineering', 'Aerospace Engineering'],
+  'Business Administration': ['Accounting', 'Finance', 'Marketing', 'Human Resources', 'International Business'],
+  'Natural Sciences': ['Physics', 'Chemistry', 'Biology', 'Mathematics', 'Environmental Science'],
+  'Medicine': ['General Medicine', 'Nursing', 'Pharmacy', 'Medical Laboratory Science', 'Public Health'],
+  'Arts & Humanities': ['English Literature', 'History', 'Philosophy', 'Fine Arts', 'Music'],
+  'Social Sciences': ['Psychology', 'Sociology', 'Political Science', 'Economics', 'Anthropology'],
+  'Law': ['Corporate Law', 'Criminal Law', 'International Law', 'Constitutional Law', 'Environmental Law'],
+}
+
 export function RegisterPage() {
   const navigate = useNavigate()
   const [formData, setFormData] = useState<RegisterRequest>({
@@ -34,6 +46,8 @@ export function RegisterPage() {
     user_type: 'student',
     student_id: '',
   })
+  const [showPassword, setShowPassword] = useState(false)
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('')
 
   // Register mutation - REAL API CALL
   const registerMutation = useMutation({
@@ -61,8 +75,8 @@ export function RegisterPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-white shadow-lg mb-4">
-            <GraduationCap className="h-10 w-10 text-primary" />
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-white shadow-lg mb-4 overflow-hidden">
+            <img src="/ZUT LOGO.png" alt="Argos Logo" className="h-12 w-12 object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">Join Argos</h1>
           <p className="text-white/90">Create your smart campus account</p>
@@ -118,16 +132,31 @@ export function RegisterPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) => updateField('password', e.target.value)}
-                  required
-                  minLength={8}
-                  disabled={registerMutation.isPending}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={formData.password}
+                    onChange={(e) => updateField('password', e.target.value)}
+                    required
+                    minLength={8}
+                    disabled={registerMutation.isPending}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    disabled={registerMutation.isPending}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Minimum 8 characters
                 </p>
@@ -187,16 +216,54 @@ export function RegisterPage() {
                       disabled={registerMutation.isPending}
                     />
                   </div>
+                  
+                  {/* Department Selection */}
                   <div className="space-y-2">
-                    <Label htmlFor="major">Major (Optional)</Label>
-                    <Input
-                      id="major"
-                      placeholder="Computer Science"
-                      value={formData.major || ''}
-                      onChange={(e) => updateField('major', e.target.value)}
+                    <Label htmlFor="department">Department (Optional)</Label>
+                    <Select
+                      value={selectedDepartment}
+                      onValueChange={(value) => {
+                        setSelectedDepartment(value)
+                        // Reset major when department changes
+                        updateField('major', '')
+                      }}
                       disabled={registerMutation.isPending}
-                    />
+                    >
+                      <SelectTrigger id="department">
+                        <SelectValue placeholder="Select your department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.keys(DEPARTMENTS_AND_MAJORS).map((dept) => (
+                          <SelectItem key={dept} value={dept}>
+                            {dept}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+
+                  {/* Major Course Selection - Only shows when department is selected */}
+                  {selectedDepartment && (
+                    <div className="space-y-2">
+                      <Label htmlFor="major">Major Course</Label>
+                      <Select
+                        value={formData.major || ''}
+                        onValueChange={(value) => updateField('major', value)}
+                        disabled={registerMutation.isPending}
+                      >
+                        <SelectTrigger id="major">
+                          <SelectValue placeholder="Select your major course" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DEPARTMENTS_AND_MAJORS[selectedDepartment as keyof typeof DEPARTMENTS_AND_MAJORS].map((major) => (
+                            <SelectItem key={major} value={major}>
+                              {major}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </>
               )}
 

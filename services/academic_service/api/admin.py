@@ -2,15 +2,17 @@
 Admin-specific endpoints for Academic Service.
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 import structlog
+import httpx
 
 from shared.database import get_db
+from shared.config import settings
 from services.academic_service.models import CourseModel, SectionModel, EnrollmentModel
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -156,10 +158,6 @@ async def get_section_enrollments(
         List of enrollments with student and course information
     """
     try:
-        from services.user_service.models import UserModel
-        import httpx
-        from shared.config import settings
-        
         # Build query
         query = (
             select(EnrollmentModel, SectionModel, CourseModel)
@@ -179,42 +177,69 @@ async def get_section_enrollments(
         
         result = await db.execute(query)
         rows = result.all()
-        
+
+        # Fetch real student profiles from User Service (one call per unique student)
+        student_profiles: Dict[str, Dict[str, Any]] = {}
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for enrollment, _, _ in rows:
+                student_id_str = str(enrollment.student_id)
+                if student_id_str in student_profiles:
+                    continue
+
+                try:
+                    resp = await client.get(
+                        f"http://localhost:{settings.user_service_port}/api/v1/users/{student_id_str}"
+                    )
+                    if resp.status_code == 200:
+                        profile = resp.json()
+                        full_name = profile.get("full_name") or (
+                            f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip()
+                        )
+                        student_profiles[student_id_str] = {
+                            "name": full_name or f"Student {student_id_str[:8]}",
+                            "email": profile.get("email"),
+                        }
+                    else:
+                        student_profiles[student_id_str] = {
+                            "name": f"Student {student_id_str[:8]}",
+                            "email": f"student+{student_id_str[:8]}@example.edu",
+                        }
+                except Exception as e:
+                    logger.warning(
+                        "Failed to fetch student profile from user service",
+                        student_id=student_id_str,
+                        error=str(e),
+                    )
+                    student_profiles[student_id_str] = {
+                        "name": f"Student {student_id_str[:8]}",
+                        "email": f"student+{student_id_str[:8]}@example.edu",
+                    }
+
         enrollments = []
         for enrollment, section, course in rows:
-            # Fetch student info from user service
-            student_info = None
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    # We need to get student info - for now use student_id
-                    # In production, you'd call user service API
-                    student_info = {
-                        "id": str(enrollment.student_id),
-                        "name": f"Student {str(enrollment.student_id)[:8]}",
-                    }
-            except Exception:
-                student_info = {
-                    "id": str(enrollment.student_id),
-                    "name": f"Student {str(enrollment.student_id)[:8]}",
+            student_id_str = str(enrollment.student_id)
+            profile = student_profiles.get(student_id_str, {})
+
+            enrollments.append(
+                {
+                    "id": str(enrollment.id),
+                    "student_id": student_id_str,
+                    "student_name": profile.get("name", "Unknown"),
+                    "student_email": profile.get("email"),
+                    "section_id": str(section.id),
+                    "section_number": section.section_number,
+                    "course_code": course.course_code,
+                    "course_title": course.title,
+                    "semester": section.semester,
+                    "enrollment_status": enrollment.enrollment_status,
+                    "is_waitlisted": enrollment.is_waitlisted,
+                    "waitlist_position": enrollment.waitlist_position,
+                    "current_grade_percentage": enrollment.current_grade_percentage,
+                    "current_letter_grade": enrollment.current_letter_grade,
+                    "attendance_percentage": enrollment.attendance_percentage,
+                    "enrolled_at": enrollment.enrolled_at.isoformat(),
                 }
-            
-            enrollments.append({
-                "id": str(enrollment.id),
-                "student_id": str(enrollment.student_id),
-                "student_name": student_info.get("name", "Unknown"),
-                "section_id": str(section.id),
-                "section_number": section.section_number,
-                "course_code": course.course_code,
-                "course_title": course.title,
-                "semester": section.semester,
-                "enrollment_status": enrollment.enrollment_status,
-                "is_waitlisted": enrollment.is_waitlisted,
-                "waitlist_position": enrollment.waitlist_position,
-                "current_grade_percentage": enrollment.current_grade_percentage,
-                "current_letter_grade": enrollment.current_letter_grade,
-                "attendance_percentage": enrollment.attendance_percentage,
-                "enrolled_at": enrollment.enrolled_at.isoformat(),
-            })
+            )
         
         logger.info(
             "Admin enrollments retrieved",

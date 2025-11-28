@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GraduationCap, Loader2, Building2, Shield, BookOpen } from 'lucide-react'
+import { GraduationCap, Loader2, Building2, Shield, BookOpen, Eye, EyeOff } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,11 +29,12 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [selectedRole, setSelectedRole] = useState<'student' | 'lecturer' | 'staff' | 'admin' | ''>('')
+  const [showPassword, setShowPassword] = useState(false)
 
   // Login mutation - REAL API CALL
   const loginMutation = useMutation({
     mutationFn: () => authService.login({ email, password }),
-    onSuccess: async (data) => {
+    onSuccess: async () => {
       // Verify user role matches selected role (if role was selected)
       if (selectedRole) {
         try {
@@ -67,8 +68,8 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-white shadow-lg mb-4">
-            <GraduationCap className="h-10 w-10 text-primary" />
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-white shadow-lg mb-4 overflow-hidden">
+            <img src="/ZUT LOGO.png" alt="Argos Logo" className="h-12 w-12 object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">Argos</h1>
           <p className="text-white/90">Smart Campus Orchestration Platform</p>
@@ -146,16 +147,40 @@ export function LoginPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={loginMutation.isPending}
-                />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-primary hover:underline"
+                    tabIndex={-1}
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    disabled={loginMutation.isPending}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    disabled={loginMutation.isPending}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">

@@ -12,8 +12,11 @@ import { Toaster } from 'sonner'
 // Pages - Public
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage'
 import { DashboardLayout } from '@/layouts/DashboardLayout'
 import { DashboardPage } from '@/pages/DashboardPage'
+import { ProfilePage } from '@/pages/ProfilePage'
+import { SettingsPage } from '@/pages/SettingsPage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 
 // Pages - Student
@@ -21,10 +24,12 @@ import { CoursesPage } from '@/pages/CoursesPage'
 import { EnrollmentsPage } from '@/pages/EnrollmentsPage'
 import { TimetablePage } from '@/pages/TimetablePage'
 import { FacilitiesPage } from '@/pages/FacilitiesPage'
+import { AssignmentsPage } from '@/pages/AssignmentsPage'
 
 // Pages - Lecturer
 import { LecturerCoursesPage } from '@/pages/lecturer/CoursesPage'
 import { LecturerGradingPage } from '@/pages/lecturer/GradingPage'
+import { LecturerAssignmentsPage } from '@/pages/lecturer/AssignmentsPage'
 import { LecturerStudentsPage } from '@/pages/lecturer/StudentsPage'
 import { LecturerSchedulePage } from '@/pages/lecturer/SchedulePage'
 import { LecturerReportsPage } from '@/pages/lecturer/ReportsPage'
@@ -63,6 +68,7 @@ function App() {
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
             {/* Protected routes */}
             <Route
@@ -76,14 +82,20 @@ function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               
+              {/* Common Routes (All Users) */}
+              <Route path="profile" element={<ProfilePage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              
               {/* Student Routes */}
               <Route path="courses" element={<CoursesPage />} />
               <Route path="enrollments" element={<EnrollmentsPage />} />
               <Route path="timetable" element={<TimetablePage />} />
               <Route path="facilities" element={<FacilitiesPage />} />
+              <Route path="assignments" element={<AssignmentsPage />} />
               
               {/* Lecturer Routes */}
               <Route path="lecturer/courses" element={<LecturerCoursesPage />} />
+              <Route path="lecturer/assignments" element={<LecturerAssignmentsPage />} />
               <Route path="lecturer/grading" element={<LecturerGradingPage />} />
               <Route path="lecturer/students" element={<LecturerStudentsPage />} />
               <Route path="lecturer/schedule" element={<LecturerSchedulePage />} />

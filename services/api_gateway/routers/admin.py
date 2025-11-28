@@ -116,6 +116,8 @@ async def get_system_statistics(
     services_online = 0
     total_services = 4  # user, academic, facility, analytics
     system_health = "healthy"
+    ml_models_active = 0
+    plugins_loaded = 0  # Plugin system not yet wired into API Gateway
     
     # Get user statistics
     try:
@@ -171,6 +173,27 @@ async def get_system_statistics(
         logger.warning("Failed to fetch event store stats", error=str(e))
         system_health = "degraded"
     
+    # Get ML model status from Analytics Service
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"http://localhost:{settings.analytics_service_port}/api/v1/models/status",
+                headers=headers,
+            )
+            if response.status_code == 200:
+                ml_status = response.json() or {}
+                count = 0
+                for _, value in ml_status.items():
+                    try:
+                        if value.get("loaded") and value.get("trained"):
+                            count += 1
+                    except AttributeError:
+                        continue
+                ml_models_active = count
+    except Exception as e:
+        logger.warning("Failed to fetch ML model status", error=str(e))
+        system_health = "degraded"
+    
     # Check service health
     services_to_check = {
         "user_service": f"http://localhost:{settings.user_service_port}/health",
@@ -208,9 +231,87 @@ async def get_system_statistics(
         "total_services": total_services,
         "event_store_events": event_store_events,
         "audit_logs_count": event_store_events,  # Using event store count as proxy
-        "ml_models_active": 0,  # Placeholder - will be implemented when ML service is ready
-        "plugins_loaded": 0,  # Placeholder - will be implemented when plugin system is ready
+        "ml_models_active": ml_models_active,
+        "plugins_loaded": plugins_loaded,
     }
+
+
+@router.get("/ml/models")
+async def list_ml_models(
+    request: Request,
+):
+    """
+    List ML models and their status for the Admin Analytics page.
+
+    Proxies to Analytics Service `/api/v1/models/status` and adapts the response
+    to the frontend `MLModel` interface:
+      - id: string
+      - name: string
+      - type: 'enrollment_predictor' | 'room_optimizer'
+      - version: string
+      - status: 'active' | 'training' | 'inactive'
+      - accuracy?: number
+      - last_trained: string
+      - predictions_count: number
+    """
+    try:
+        headers = {}
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            headers["Authorization"] = auth_header
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"http://localhost:{settings.analytics_service_port}/api/v1/models/status",
+                headers=headers,
+            )
+            response.raise_for_status()
+            status_data = response.json() or {}
+
+        models = []
+
+        # Enrollment predictor
+        enroll = status_data.get("enrollment_predictor") or {}
+        if enroll.get("loaded") or enroll.get("model_name"):
+            models.append(
+                {
+                    "id": "enrollment_predictor",
+                    "name": enroll.get("model_name") or "Enrollment Predictor",
+                    "type": "enrollment_predictor",
+                    "version": enroll.get("version") or "1.0.0",
+                    "status": "active" if enroll.get("loaded") else "inactive",
+                    "accuracy": None,
+                    "last_trained": enroll.get("last_trained") or "",
+                    "predictions_count": enroll.get("predictions_count") or 0,
+                }
+            )
+
+        # Room optimizer
+        room = status_data.get("room_optimizer") or {}
+        if room.get("loaded") or room.get("model_name"):
+            models.append(
+                {
+                    "id": "room_optimizer",
+                    "name": room.get("model_name") or "Room Usage Optimizer",
+                    "type": "room_optimizer",
+                    "version": room.get("version") or "1.0.0",
+                    "status": "active" if room.get("loaded") else "inactive",
+                    "accuracy": None,
+                    "last_trained": room.get("last_trained") or "",
+                    "predictions_count": room.get("predictions_count") or 0,
+                }
+            )
+
+        return models
+
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy ML models", error=str(e))
+        raise HTTPException(status_code=503, detail="Analytics Service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except Exception as e:
+        logger.error("Unexpected error proxying ML models", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/activity")
@@ -692,17 +793,32 @@ async def generate_report(
     request: Request,
 ):
     """
-    Generate admin reports (JSON, CSV, PDF).
+    Generate admin reports using polymorphic Reportable interface.
+    
+    Supports:
+    - admin_summary: System-wide statistics
+    - compliance_audit: Security and compliance audit
+    - lecturer_performance: Course performance metrics
+    
+    Formats: JSON, CSV, PDF
     
     Args:
-        report_data: Report generation request
+        report_data: Report generation request with:
+            - report_type: 'admin_summary' | 'compliance_audit' | 'lecturer_performance'
+            - format: 'json' | 'csv' | 'pdf'
+            - scope: Optional scope parameters (start_date, end_date, course_id, etc.)
         
     Returns:
-        Report data in requested format
+        Report data in requested format (bytes for CSV/PDF, JSON for JSON)
     """
     try:
-        report_type = report_data.get("type", "admin_summary")
-        format_type = report_data.get("format", "json")
+        from ..services.report_service import ReportService
+        from shared.domain.reports import ReportFormat, ReportScope
+        from datetime import datetime
+        
+        report_type = report_data.get("report_type") or report_data.get("type", "admin_summary")
+        format_str = report_data.get("format", "json")
+        scope_data = report_data.get("scope", {})
         
         # Extract Authorization header
         headers = {}
@@ -710,48 +826,105 @@ async def generate_report(
         if auth_header:
             headers["Authorization"] = auth_header
         
-        # Generate report based on type
+        # Parse format
+        try:
+            format_enum = ReportFormat(format_str.lower())
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format_str}")
+        
+        # Parse scope
+        scope_enum = ReportScope.INTERNAL
         if report_type == "admin_summary":
-            # Get system stats
-            stats_response = await get_system_statistics(request)
-            
-            if format_type == "json":
-                return stats_response
-            elif format_type == "csv":
-                # Convert to CSV
-                import io
-                import csv
-                output = io.StringIO()
-                writer = csv.writer(output)
-                writer.writerow(["Metric", "Value"])
-                for key, value in stats_response.items():
-                    writer.writerow([key, value])
-                return output.getvalue()
-            elif format_type == "pdf":
-                # For PDF, return JSON for now (PDF generation requires additional libraries)
-                return stats_response
-        
+            scope_enum = ReportScope.ADMINISTRATIVE
         elif report_type == "compliance_audit":
-            # Get audit logs
-            audit_logs = await get_audit_logs(request, limit=1000)
-            
-            if format_type == "json":
-                return audit_logs
-            elif format_type == "csv":
-                import io
-                import csv
-                output = io.StringIO()
-                if audit_logs:
-                    writer = csv.DictWriter(output, fieldnames=audit_logs[0].keys())
-                    writer.writeheader()
-                    writer.writerows(audit_logs)
-                return output.getvalue()
-            else:
-                return audit_logs
+            scope_enum = ReportScope.COMPLIANCE
         
-        return {"message": "Report generated", "type": report_type, "format": format_type}
+        # Parse dates if provided
+        start_date = None
+        end_date = None
+        if scope_data.get("start_date"):
+            start_date = datetime.fromisoformat(scope_data["start_date"].replace("Z", "+00:00"))
+        if scope_data.get("end_date"):
+            end_date = datetime.fromisoformat(scope_data["end_date"].replace("Z", "+00:00"))
+        
+        # Initialize report service
+        report_service = ReportService()
+        
+        # Generate report using polymorphic dispatch
+        if report_type == "admin_summary":
+            content = await report_service.generate_admin_summary_report(
+                format=format_enum,
+                scope=scope_enum,
+                start_date=start_date,
+                end_date=end_date,
+                headers=headers,
+            )
+        elif report_type == "compliance_audit":
+            content = await report_service.generate_compliance_audit_report(
+                format=format_enum,
+                scope=scope_enum,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        elif report_type == "lecturer_performance":
+            from uuid import UUID as UUIDType
+            course_id = None
+            lecturer_id = None
+            if scope_data.get("course_id"):
+                try:
+                    course_id = UUIDType(scope_data["course_id"])
+                except (ValueError, TypeError):
+                    pass
+            if scope_data.get("lecturer_id"):
+                try:
+                    lecturer_id = UUIDType(scope_data["lecturer_id"])
+                except (ValueError, TypeError):
+                    pass
+            
+            content = await report_service.generate_lecturer_performance_report(
+                format=format_enum,
+                scope=scope_enum,
+                course_id=course_id,
+                lecturer_id=lecturer_id,
+                headers=headers,
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported report type: {report_type}. Supported: admin_summary, compliance_audit, lecturer_performance"
+            )
+        
+        # Return appropriate response based on format
+        if format_enum == ReportFormat.JSON:
+            from fastapi.responses import JSONResponse
+            import json
+            # Parse JSON bytes back to dict for JSONResponse
+            data = json.loads(content.decode("utf-8"))
+            return JSONResponse(content=data)
+        elif format_enum == ReportFormat.CSV:
+            from fastapi.responses import Response
+            return Response(
+                content=content,
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{report_type}_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.csv"'
+                }
+            )
+        elif format_enum == ReportFormat.PDF:
+            from fastapi.responses import Response
+            return Response(
+                content=content,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{report_type}_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.pdf"'
+                }
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format_str}")
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Failed to generate report", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Failed to generate report", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
 

@@ -66,15 +66,21 @@ export function TimetablePage() {
     return schedule.filter(cls => Array.isArray(cls.days) && cls.days.includes(day))
   }
 
+  const normalizeTime = (time: string): string => {
+   
+    return time.split(':').slice(0, 2).join(':').padStart(5, '0')
+  }
+
   // Get class at specific time slot
   const getClassAtTime = (day: string, time: string): ScheduleClass | null => {
     const classes = getClassesForDay(day)
+    const normalizedSlotTime = normalizeTime(time)
+    
     for (const cls of classes) {
-      const classStart = cls.start_time.replace(':', '')
-      const classEnd = cls.end_time.replace(':', '')
-      const slotTime = time.replace(':', '')
+      const classStart = normalizeTime(cls.start_time)
+      const classEnd = normalizeTime(cls.end_time)
       
-      if (slotTime >= classStart && slotTime < classEnd) {
+      if (normalizedSlotTime >= classStart && normalizedSlotTime < classEnd) {
         return cls
       }
     }
@@ -146,18 +152,18 @@ export function TimetablePage() {
           </div>
 
           {/* Desktop Timetable View */}
-          <div className="hidden lg:block">
-            <Card>
-              <CardContent className="p-0">
+          <div className="hidden lg:block overflow-visible">
+            <Card className="overflow-visible">
+              <CardContent className="p-0 overflow-visible">
                 <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
+                  <table className="w-full border-collapse min-w-full">
                     <thead>
                       <tr className="bg-muted/50">
-                        <th className="border border-border p-3 text-left font-semibold text-sm w-24">
+                        <th className="border border-border p-3 text-left font-semibold text-sm w-24 sticky left-0 bg-muted/50 z-10">
                           Time
                         </th>
                         {daysOfWeek.slice(0, 5).map((day) => (
-                          <th key={day} className="border border-border p-3 text-center font-semibold text-sm">
+                          <th key={day} className="border border-border p-3 text-center font-semibold text-sm min-w-[150px]">
                             {day}
                           </th>
                         ))}
@@ -171,26 +177,27 @@ export function TimetablePage() {
                           </td>
                           {daysOfWeek.slice(0, 5).map((day) => {
                             const classAtTime = getClassAtTime(day, time)
+                            const isStartTime = classAtTime && normalizeTime(time) === normalizeTime(classAtTime.start_time)
                             return (
-                              <td key={day} className="border border-border p-1">
-                                {classAtTime && time === classAtTime.start_time && (
+                              <td key={day} className="border border-border p-1 align-top">
+                                {classAtTime && isStartTime && (
                                   <div className={cn(
-                                    "p-3 rounded-lg text-white h-full",
+                                    "p-3 rounded-lg text-white h-full min-h-[80px]",
                                     classAtTime.color
                                   )}>
                                     <div className="font-bold text-sm mb-1">
                                       {classAtTime.course_code}
                                     </div>
-                                    <div className="text-xs opacity-90 mb-2">
+                                    <div className="text-xs opacity-90 mb-2 line-clamp-2">
                                       {classAtTime.course_title}
                                     </div>
                                     <div className="flex items-center gap-1 text-xs opacity-80">
-                                      <Clock className="h-3 w-3" />
-                                      <span>{classAtTime.start_time} - {classAtTime.end_time}</span>
+                                      <Clock className="h-3 w-3 flex-shrink-0" />
+                                      <span>{normalizeTime(classAtTime.start_time)} - {normalizeTime(classAtTime.end_time)}</span>
                                     </div>
                                     <div className="flex items-center gap-1 text-xs opacity-80 mt-1">
-                                      <MapPin className="h-3 w-3" />
-                                      <span>{classAtTime.room_location}</span>
+                                      <MapPin className="h-3 w-3 flex-shrink-0" />
+                                      <span className="line-clamp-1">{classAtTime.room_location}</span>
                                     </div>
                                   </div>
                                 )}
@@ -238,15 +245,15 @@ export function TimetablePage() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex items-center gap-2 opacity-90">
-                            <Clock className="h-4 w-4" />
-                            <span>{cls.start_time} - {cls.end_time}</span>
+                            <Clock className="h-4 w-4 flex-shrink-0" />
+                            <span>{normalizeTime(cls.start_time)} - {normalizeTime(cls.end_time)}</span>
                           </div>
                           <div className="flex items-center gap-2 opacity-90">
-                            <MapPin className="h-4 w-4" />
+                            <MapPin className="h-4 w-4 flex-shrink-0" />
                             <span>{cls.room_location}</span>
                           </div>
                           <div className="flex items-center gap-2 opacity-90">
-                            <User className="h-4 w-4" />
+                            <User className="h-4 w-4 flex-shrink-0" />
                             <span>{cls.instructor_name}</span>
                           </div>
                         </div>

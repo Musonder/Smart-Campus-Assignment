@@ -25,7 +25,6 @@ import { toast } from 'sonner'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -34,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import apiClient from '@/lib/api-client'
 import { getErrorMessage } from '@/lib/api-client'
 
@@ -61,7 +61,7 @@ export function AdminReportsPage() {
   const generateReportMutation = useMutation({
     mutationFn: async (data: ReportRequest) => {
       const response = await apiClient.post('/api/v1/admin/reports/generate', data, {
-        responseType: format === 'pdf' ? 'blob' : 'json',
+        responseType: (format === 'pdf' || format === 'csv') ? 'blob' : 'json',
       })
       return response.data
     },
@@ -70,7 +70,8 @@ export function AdminReportsPage() {
       
       // Download the file
       if (variables.format === 'pdf') {
-        const blob = new Blob([data], { type: 'application/pdf' })
+        // data is already a Blob when responseType is 'blob'
+        const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/pdf' })
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -90,7 +91,8 @@ export function AdminReportsPage() {
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
       } else if (variables.format === 'csv') {
-        const blob = new Blob([data], { type: 'text/csv' })
+        // data is already a Blob when responseType is 'blob'
+        const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/csv' })
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -131,16 +133,6 @@ export function AdminReportsPage() {
     }
   }
 
-  const getFormatIcon = (fmt: ReportFormat) => {
-    switch (fmt) {
-      case 'json':
-        return <FileJson className="h-4 w-4" />
-      case 'csv':
-        return <FileSpreadsheet className="h-4 w-4" />
-      case 'pdf':
-        return <FileType className="h-4 w-4" />
-    }
-  }
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -237,7 +229,7 @@ export function AdminReportsPage() {
                   id="start-date"
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartDate(e.target.value)}
                   className="pl-9"
                 />
               </div>
@@ -250,7 +242,7 @@ export function AdminReportsPage() {
                   id="end-date"
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndDate(e.target.value)}
                   className="pl-9"
                 />
               </div>

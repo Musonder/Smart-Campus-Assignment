@@ -195,8 +195,16 @@ async def login(request: LoginRequest) -> TokenResponse:
         )
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(refresh_token: str) -> TokenResponse:
+async def refresh_token(request: RefreshTokenRequest) -> TokenResponse:
     """
     Refresh access token using refresh token.
     
@@ -208,7 +216,7 @@ async def refresh_token(refresh_token: str) -> TokenResponse:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{USER_SERVICE_URL}/auth/refresh",
-                params={"refresh_token": refresh_token},
+                json={"refresh_token": request.refresh_token},
                 timeout=30.0
             )
             

@@ -11,11 +11,8 @@ import {
   Users, 
   ClipboardCheck, 
   Calendar,
-  TrendingUp,
   AlertCircle,
-  CheckCircle2,
-  Clock,
-  GraduationCap
+  Clock
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -25,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { authService } from '@/services/auth.service'
 import apiClient from '@/lib/api-client'
 import { getGreeting } from '@/lib/utils'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface LecturerStats {
   total_sections: number
@@ -120,21 +118,39 @@ export function LecturerDashboardPage() {
 
       {/* Key Statistics */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">My Sections</CardTitle>
-            <BookOpen className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-blue-600">{stats.total_sections}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stats.active_courses} active courses
-            </p>
-            <Button variant="ghost" size="sm" className="mt-2" asChild>
-              <Link to="/lecturer/courses">View Courses →</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        {userLoading || sectionsLoading ? (
+          <>
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i} className="border-border/60">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-9 w-16 mb-2" />
+                  <Skeleton className="h-3 w-28 mb-3" />
+                  <Skeleton className="h-8 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
+            <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">My Sections</CardTitle>
+                <BookOpen className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-blue-600">{stats.total_sections}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {stats.active_courses} active courses
+                </p>
+                <Button variant="ghost" size="sm" className="mt-2" asChild>
+                  <Link to="/lecturer/courses">View Courses →</Link>
+                </Button>
+              </CardContent>
+            </Card>
 
         <Card className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-purple-500/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -168,29 +184,56 @@ export function LecturerDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5 border-orange-500/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Upcoming Classes</CardTitle>
-            <Calendar className="h-4 w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-orange-600">{stats.upcoming_classes}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Classes this week
-            </p>
-            <Button variant="ghost" size="sm" className="mt-2" asChild>
-              <Link to="/lecturer/schedule">View Schedule →</Link>
-            </Button>
-          </CardContent>
-        </Card>
+            <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5 border-orange-500/20">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Upcoming Classes</CardTitle>
+                <Calendar className="h-4 w-4 text-orange-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-orange-600">{stats.upcoming_classes}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Classes this week
+                </p>
+                <Button variant="ghost" size="sm" className="mt-2" asChild>
+                  <Link to="/lecturer/schedule">View Schedule →</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* My Sections Overview */}
       {sectionsLoading ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-            <p className="mt-4 text-muted-foreground">Loading your sections...</p>
+        <Card className="border-border/60">
+          <CardHeader>
+            <Skeleton className="h-6 w-48 mb-2" />
+            <Skeleton className="h-4 w-72" />
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i} className="border-border/60">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                      <Skeleton className="h-5 w-24 rounded-full" />
+                    </div>
+                    <Skeleton className="h-5 w-3/4 mb-2" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex justify-between">
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 w-16" />
+                    </div>
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-2 w-full rounded-full" />
+                    <Skeleton className="h-9 w-full" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </CardContent>
         </Card>
       ) : sectionsError ? (

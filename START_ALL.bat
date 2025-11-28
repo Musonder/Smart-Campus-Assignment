@@ -20,29 +20,51 @@ echo.
 echo [Step 3] Starting Backend Services...
 echo.
 
-REM Start API Gateway (Frontend connects to this)
-echo   Starting API Gateway (port 8000)...
-start "Argos - API Gateway" cmd /k "set PYTHONPATH=%PYTHONPATH% && python services\api_gateway\main.py"
+REM Start API Gateway (Frontend connects to this - CORS configured)
+REM This is the ONLY service the frontend should connect to
+echo   Starting API Gateway (port 8000) with CORS enabled...
+echo   NOTE: Frontend connects ONLY to this service (8000)
+if exist "venv\Scripts\activate.bat" (
+    start "Argos - API Gateway" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && set PYTHONPATH=%PYTHONPATH% && python services\api_gateway\main.py"
+) else (
+    start "Argos - API Gateway" cmd /k "cd /d %~dp0 && set PYTHONPATH=%PYTHONPATH% && python services\api_gateway\main.py"
+)
 timeout /t 3 /nobreak > nul
 
 REM Start User Service
 echo   Starting User Service (port 8001)...
-start "Argos - User Service" cmd /k "set PYTHONPATH=%PYTHONPATH% && python services\user_service\main.py"
+if exist "venv\Scripts\activate.bat" (
+    start "Argos - User Service" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && set PYTHONPATH=%PYTHONPATH% && python services\user_service\main.py"
+) else (
+    start "Argos - User Service" cmd /k "cd /d %~dp0 && set PYTHONPATH=%PYTHONPATH% && python services\user_service\main.py"
+)
 timeout /t 3 /nobreak > nul
 
 REM Start Academic Service
 echo   Starting Academic Service (port 8002)...
-start "Argos - Academic Service" cmd /k "set PYTHONPATH=%PYTHONPATH% && python services\academic_service\main.py"
+if exist "venv\Scripts\activate.bat" (
+    start "Argos - Academic Service" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && set PYTHONPATH=%PYTHONPATH% && python services\academic_service\main.py"
+) else (
+    start "Argos - Academic Service" cmd /k "cd /d %~dp0 && set PYTHONPATH=%PYTHONPATH% && python services\academic_service\main.py"
+)
 timeout /t 3 /nobreak > nul
 
 REM Start Analytics Service
 echo   Starting Analytics Service (port 8004)...
-start "Argos - Analytics Service" cmd /k "set PYTHONPATH=%PYTHONPATH% && python services\analytics_service\main.py"
+if exist "venv\Scripts\activate.bat" (
+    start "Argos - Analytics Service" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && set PYTHONPATH=%PYTHONPATH% && python services\analytics_service\main.py"
+) else (
+    start "Argos - Analytics Service" cmd /k "cd /d %~dp0 && set PYTHONPATH=%PYTHONPATH% && python services\analytics_service\main.py"
+)
 timeout /t 3 /nobreak > nul
 
 REM Start Facility Service
 echo   Starting Facility Service (port 8005)...
-start "Argos - Facility Service" cmd /k "set PYTHONPATH=%PYTHONPATH% && python services\facility_service\main.py"
+if exist "venv\Scripts\activate.bat" (
+    start "Argos - Facility Service" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && set PYTHONPATH=%PYTHONPATH% && python services\facility_service\main.py"
+) else (
+    start "Argos - Facility Service" cmd /k "cd /d %~dp0 && set PYTHONPATH=%PYTHONPATH% && python services\facility_service\main.py"
+)
 timeout /t 3 /nobreak > nul
 
 echo.
@@ -61,13 +83,21 @@ echo.
 echo Access the application:
 echo   Frontend:       http://localhost:5173
 echo   API Gateway:    http://localhost:8000/docs
+echo.
+echo Backend Services (Internal - API Gateway proxies to these):
 echo   User API:       http://localhost:8001/docs
 echo   Academic API:   http://localhost:8002/docs
 echo   Analytics API:  http://localhost:8004/docs
 echo   Facility API:   http://localhost:8005/docs
 echo.
+echo IMPORTANT:
+echo   - Frontend ONLY connects to API Gateway (port 8000)
+echo   - CORS is configured on API Gateway for http://localhost:5173
+echo   - Backend services (8001, 8002, etc.) are internal only
+echo.
 echo Note: Services are running in separate windows.
 echo       Close those windows to stop services.
+echo       Check API Gateway window for "CORS configured" message.
 echo.
 echo Press any key to close this window...
 pause > nul

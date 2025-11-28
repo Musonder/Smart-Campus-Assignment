@@ -3,7 +3,7 @@ Lecturer-specific endpoints for course and student management.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Header
@@ -12,7 +12,9 @@ from sqlalchemy import select
 import structlog
 
 from shared.database import get_db
+from shared.config import settings
 from services.academic_service.models import SectionModel, CourseModel, EnrollmentModel
+import httpx
 
 router = APIRouter(prefix="/lecturer", tags=["lecturer"])
 logger = structlog.get_logger(__name__)
@@ -156,18 +158,56 @@ async def get_lecturer_students(
         result = await db.execute(stmt)
         rows = result.all()
 
+        # Fetch real student profiles from User Service (one call per unique student)
+        student_profiles: Dict[str, Dict[str, Any]] = {}
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for enrollment, _, _ in rows:
+                student_id_str = str(enrollment.student_id)
+                if student_id_str in student_profiles:
+                    continue
+
+                try:
+                    resp = await client.get(
+                        f"http://localhost:{settings.user_service_port}/api/v1/users/{student_id_str}"
+                    )
+                    if resp.status_code == 200:
+                        profile = resp.json()
+                        student_profiles[student_id_str] = {
+                            "name": profile.get("full_name")
+                            or f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip(),
+                            "email": profile.get("email"),
+                        }
+                    else:
+                        # Fallback synthetic details if user not found / error
+                        student_profiles[student_id_str] = {
+                            "name": f"Student {student_id_str[:8]}",
+                            "email": f"student+{student_id_str[:8]}@example.edu",
+                        }
+                except Exception as e:
+                    logger.warning(
+                        "Failed to fetch student profile from user service",
+                        student_id=student_id_str,
+                        error=str(e),
+                    )
+                    student_profiles[student_id_str] = {
+                        "name": f"Student {student_id_str[:8]}",
+                        "email": f"student+{student_id_str[:8]}@example.edu",
+                    }
+
+        # Re-iterate rows now that profiles are available
         students: list[dict] = []
         for enrollment, section, course in rows:
-            # NOTE: For now we don't call User Service; we synthesize a display name/email
-            # based on student_id to keep this decoupled and fast for the assignment.
             student_id_str = str(enrollment.student_id)
+            profile = student_profiles.get(student_id_str, {})
 
             students.append(
                 {
                     "id": str(enrollment.id),
                     "student_id": student_id_str,
-                    "student_name": f"Student {student_id_str[:8]}",
-                    "student_email": f"student+{student_id_str[:8]}@example.edu",
+                    "student_name": profile.get("name")
+                    or f"Student {student_id_str[:8]}",
+                    "student_email": profile.get("email")
+                    or f"student+{student_id_str[:8]}@example.edu",
                     "section_id": str(section.id),
                     "section_number": section.section_number,
                     "course_code": course.course_code,

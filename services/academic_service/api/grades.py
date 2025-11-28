@@ -5,6 +5,7 @@ CRUD operations for grade assignment - fully functional.
 Admins and Lecturers can assign grades to students.
 """
 
+import base64
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -17,9 +18,28 @@ import structlog
 
 from shared.database import get_db
 from services.academic_service.models import GradeModel, EnrollmentModel, SectionModel, CourseModel
+from shared.security.encryption import EncryptionService
 
 router = APIRouter(prefix="/grades", tags=["grades"])
 logger = structlog.get_logger(__name__)
+
+# Get encryption service instance
+_encryption_service: Optional[EncryptionService] = None
+
+def get_encryption_service_instance() -> EncryptionService:
+    """Get or create encryption service instance."""
+    global _encryption_service
+    if _encryption_service is None:
+        from shared.config import settings
+        import os
+        # Get encryption key from environment or generate new one
+        key_str = os.getenv("ENCRYPTION_KEY")
+        if key_str:
+            key = base64.b64decode(key_str)
+        else:
+            key = EncryptionService.generate_key()
+        _encryption_service = EncryptionService(master_key=key)
+    return _encryption_service
 
 
 class CreateGradeRequest(BaseModel):
@@ -202,18 +222,25 @@ async def create_grade(
     else:
         letter_grade = "F"
     
-    # Create grade (encrypted fields would be encrypted here in production)
+    # Encrypt sensitive grade data
+    encryption_service = get_encryption_service_instance()
+    encrypted_points = encryption_service.encrypt_field(request.points_earned)
+    encrypted_total = encryption_service.encrypt_field(request.total_points)
+    encrypted_percentage = encryption_service.encrypt_field(percentage)
+    encrypted_feedback = encryption_service.encrypt_field(request.feedback) if request.feedback else None
+    
+    # Create grade with encrypted fields
     grade = GradeModel(
         student_id=request.student_id,
         section_id=request.section_id,
         assessment_id=request.assessment_id,
-        points_earned=str(request.points_earned),  # Encrypted in production
-        total_points=str(request.total_points),  # Encrypted in production
-        percentage=str(percentage),  # Encrypted in production
+        points_earned=encrypted_points,  # Encrypted
+        total_points=encrypted_total,  # Encrypted
+        percentage=encrypted_percentage,  # Encrypted
         letter_grade=letter_grade,
         graded_by=grader_id,
         graded_at=datetime.utcnow(),
-        feedback=request.feedback,
+        feedback=encrypted_feedback,  # Encrypted
         is_late=request.is_late,
         version=1,
     )
@@ -235,18 +262,25 @@ async def create_grade(
         section_id=str(request.section_id),
     )
     
+    # Decrypt grade data for response
+    encryption_service = get_encryption_service_instance()
+    decrypted_points = encryption_service.decrypt_field(grade.points_earned)
+    decrypted_total = encryption_service.decrypt_field(grade.total_points)
+    decrypted_percentage = encryption_service.decrypt_field(grade.percentage)
+    decrypted_feedback = encryption_service.decrypt_field(grade.feedback) if grade.feedback else None
+    
     return GradeResponse(
         id=grade.id,
         student_id=grade.student_id,
         section_id=grade.section_id,
         assessment_id=grade.assessment_id,
-        points_earned=float(grade.points_earned),
-        total_points=float(grade.total_points),
-        percentage=float(grade.percentage),
+        points_earned=float(decrypted_points),
+        total_points=float(decrypted_total),
+        percentage=float(decrypted_percentage),
         letter_grade=grade.letter_grade,
         graded_by=grade.graded_by,
         graded_at=grade.graded_at,
-        feedback=grade.feedback,
+        feedback=decrypted_feedback,
         is_late=grade.is_late,
         version=grade.version,
     )
@@ -293,22 +327,32 @@ async def list_grades(
             seen.add(key)
             latest_grades.append(grade)
     
-    return [
-        GradeResponse(
-            id=grade.id,
-            student_id=grade.student_id,
-            section_id=grade.section_id,
-            assessment_id=grade.assessment_id,
-            points_earned=float(grade.points_earned),
-            total_points=float(grade.total_points),
-            percentage=float(grade.percentage),
-            letter_grade=grade.letter_grade,
-            graded_by=grade.graded_by,
-            graded_at=grade.graded_at,
-            feedback=grade.feedback,
-            is_late=grade.is_late,
-            version=grade.version,
+    # Decrypt grades for response
+    encryption_service = get_encryption_service_instance()
+    decrypted_grades = []
+    for grade in latest_grades:
+        decrypted_points = encryption_service.decrypt_field(grade.points_earned)
+        decrypted_total = encryption_service.decrypt_field(grade.total_points)
+        decrypted_percentage = encryption_service.decrypt_field(grade.percentage)
+        decrypted_feedback = encryption_service.decrypt_field(grade.feedback) if grade.feedback else None
+        
+        decrypted_grades.append(
+            GradeResponse(
+                id=grade.id,
+                student_id=grade.student_id,
+                section_id=grade.section_id,
+                assessment_id=grade.assessment_id,
+                points_earned=float(decrypted_points),
+                total_points=float(decrypted_total),
+                percentage=float(decrypted_percentage),
+                letter_grade=grade.letter_grade,
+                graded_by=grade.graded_by,
+                graded_at=grade.graded_at,
+                feedback=decrypted_feedback,
+                is_late=grade.is_late,
+                version=grade.version,
+            )
         )
-        for grade in latest_grades
-    ]
+    
+    return decrypted_grades
 

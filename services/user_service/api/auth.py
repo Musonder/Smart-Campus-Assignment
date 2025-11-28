@@ -144,9 +144,12 @@ async def register(
     # Commit transaction
     await db.commit()
 
-    # Generate tokens
+    # Generate tokens with role-based expiration
     access_token = jwt_manager.create_access_token(
-        user_id=user.id, email=user.email, roles=user.role_ids or []
+        user_id=user.id,
+        email=user.email,
+        roles=user.role_ids or [],
+        user_type=user.user_type.value if hasattr(user.user_type, 'value') else str(user.user_type),
     )
 
     refresh_token = jwt_manager.create_refresh_token(user_id=user.id)
@@ -193,9 +196,12 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
 
     await db.commit()
 
-    # Generate tokens
+    # Generate tokens with role-based expiration
     access_token = jwt_manager.create_access_token(
-        user_id=user.id, email=user.email, roles=user.role_ids or []
+        user_id=user.id,
+        email=user.email,
+        roles=user.role_ids or [],
+        user_type=user.user_type.value if hasattr(user.user_type, 'value') else str(user.user_type),
     )
 
     refresh_token = jwt_manager.create_refresh_token(user_id=user.id)
@@ -211,9 +217,14 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     )
 
 
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request."""
+    refresh_token: str
+
+
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_access_token(
-    refresh_token: str, db: AsyncSession = Depends(get_db)
+    request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)
 ) -> TokenResponse:
     """
     Refresh access token using refresh token.
@@ -230,13 +241,13 @@ async def refresh_access_token(
     """
     try:
         # Verify it's a refresh token
-        if not jwt_manager.verify_token_type(refresh_token, "refresh"):
+        if not jwt_manager.verify_token_type(request.refresh_token, "refresh"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
             )
 
         # Extract user ID
-        user_id = jwt_manager.get_user_id_from_token(refresh_token)
+        user_id = jwt_manager.get_user_id_from_token(request.refresh_token)
 
         # Get user
         user_repo = UserRepository(db)
@@ -247,9 +258,12 @@ async def refresh_access_token(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
             )
 
-        # Generate new tokens
+        # Generate new tokens with role-based expiration
         new_access_token = jwt_manager.create_access_token(
-            user_id=user.id, email=user.email, roles=user.role_ids or []
+            user_id=user.id,
+            email=user.email,
+            roles=user.role_ids or [],
+            user_type=user.user_type.value if hasattr(user.user_type, 'value') else str(user.user_type),
         )
 
         new_refresh_token = jwt_manager.create_refresh_token(user_id=user.id)

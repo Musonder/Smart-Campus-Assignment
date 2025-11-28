@@ -1,61 +1,83 @@
-# Argos Smart Campus Platform - Complete Requirements
-# Python 3.11+ recommended (3.14 compatible for most packages)
+#
+# Argos Smart Campus – Complete Python Requirements
+#
+# This file contains ALL Python libraries used in the project.
+# It matches pyproject.toml dependencies + optional dev tools.
+#
+# Install with: pip install -r requirements.txt
+#
+# Note: ML packages (torch, ray[rllib]) are large and may take time to install.
+# The system works without them (uses rule-based fallbacks).
+#
 
 # ===== Core Framework =====
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-pydantic==2.10.5
-pydantic-settings==2.7.1
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# ===== gRPC & RPC =====
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+grpcio-reflection>=1.60.0
 
 # ===== Database & ORM =====
-sqlalchemy==2.0.36
-alembic==1.14.0
-psycopg[binary,pool]==3.2.3
-pymongo==4.10.1
-motor==3.6.0
-redis==5.2.2
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+psycopg2-binary>=2.9.9
+pymongo>=4.6.1
+motor>=3.3.2
+redis>=5.0.1
+
+# ===== Event Streaming =====
+aiokafka>=0.10.0
+kafka-python>=2.0.2
 
 # ===== Security & Authentication =====
-python-jose[cryptography]==3.5.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.2.1
-python-multipart==0.0.20
-cryptography==46.0.3
-email-validator==2.2.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
+cryptography>=42.0.0
+email-validator>=2.0.0
+
+# ===== Machine Learning & Data Science =====
+torch>=2.2.0
+pytorch-lightning>=2.1.0
+ray[rllib]>=2.9.0
+scikit-learn>=1.4.0
+pandas>=2.2.0
+numpy>=1.26.0
+shap>=0.44.0
+lime>=0.2.0.1
+
+# ===== Optimization =====
+ortools>=9.8.0
 
 # ===== Utilities & HTTP =====
-python-dotenv==1.0.1
-httpx==0.28.1
-tenacity==9.0.0
-structlog==24.4.0
+python-dotenv>=1.0.0
+httpx>=0.26.0
+tenacity>=8.2.3
+structlog>=24.1.0
 
 # ===== Reports & PDF Generation =====
-reportlab==4.4.4
+reportlab>=4.0.0
 
-# ===== ML & Data Science (Optional - see INSTALL_PACKAGES.bat) =====
-# torch
-# numpy
-# pandas
-# scikit-learn
-# pytorch-lightning
-# stable-baselines3
-# gymnasium
-# lime
-# shap
-# ortools
+# ===== Monitoring & Observability =====
+prometheus-client>=0.19.0
+opentelemetry-api>=1.22.0
+opentelemetry-sdk>=1.22.0
 
-# ===== Development & Testing =====
-pytest==8.3.4
-pytest-asyncio==0.24.0
-black==24.10.0
+# ===== Testing & QA =====
+pytest>=8.0.0
+pytest-asyncio>=0.23.3
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+hypothesis>=6.98.0
 
-# ===== Kafka & Streaming (Optional) =====
-# kafka-python==2.0.2
-# aiokafka==0.11.0
+# ===== Dev Tooling =====
+black>=24.1.0
+ruff>=0.2.0
+mypy>=1.8.0
+pre-commit>=3.6.0
+locust>=2.20.0
 
-# ===== Monitoring (Optional) =====
-# prometheus-client==0.21.0
-# opentelemetry-api==1.29.0
-
-# Note: ML packages (torch, stable-baselines3, etc.) may require Python 3.11 or 3.12
-# Run INSTALL_PACKAGES.bat separately to install ML features

@@ -6,7 +6,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { BookOpen, Calendar, TrendingUp, CheckCircle2, ArrowRight } from 'lucide-react'
+import { BookOpen, Calendar, TrendingUp, CheckCircle2, ArrowRight, AlertCircle, RefreshCw, WifiOff, ServerOff } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,6 +17,7 @@ import { academicService } from '@/services/academic.service'
 import { getGreeting, getGradeColor } from '@/lib/utils'
 import { AdminDashboardPage } from '@/pages/admin/DashboardPage'
 import { LecturerDashboardPage } from '@/pages/lecturer/DashboardPage'
+import { DashboardSkeleton } from '@/components/dashboard-skeleton'
 
 export function DashboardPage() {
   // ALL HOOKS MUST BE CALLED FIRST - BEFORE ANY CONDITIONAL RETURNS
@@ -99,38 +100,109 @@ export function DashboardPage() {
 
   // Show loading state while checking user type
   if (userLoading) {
-    return (
-      <div className="space-y-8 animate-fade-in">
-        <div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">Loading...</h1>
-          <p className="text-muted-foreground text-lg">Checking your account...</p>
-        </div>
-      </div>
-    )
+    return <DashboardSkeleton />
   }
 
-  // Show error state if user fetch failed - BUT STILL RENDER DASHBOARD STRUCTURE
+  // Show error state if user fetch failed - Professional error UI
   if (userError) {
+    const errorMessage = userErrorObj instanceof Error ? userErrorObj.message : 'Failed to load user data'
+    const isNetworkError = errorMessage.toLowerCase().includes('network') || errorMessage.toLowerCase().includes('failed to fetch')
+    const isServerError = errorMessage.toLowerCase().includes('server') || errorMessage.toLowerCase().includes('500')
+    
     return (
-      <div className="space-y-8 animate-fade-in">
-        <div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">Unable to Load User Data</h1>
-          <p className="text-muted-foreground text-lg mb-4">
-            {userErrorObj instanceof Error ? userErrorObj.message : 'Failed to load user data'}
-          </p>
-          <Button onClick={() => window.location.reload()}>Retry</Button>
-        </div>
-        {/* Still show dashboard structure even on error */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Dashboard</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Please refresh to load your data</p>
-            </CardContent>
-          </Card>
-        </div>
+      <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center p-4 animate-fade-in">
+        <Card className="w-full max-w-2xl border-destructive/20 shadow-xl">
+          <CardContent className="pt-12 pb-12 px-8">
+            <div className="flex flex-col items-center text-center space-y-6">
+              {/* Error Icon with Animation */}
+              <div className="relative">
+                <div className="absolute inset-0 bg-destructive/20 rounded-full blur-2xl animate-pulse" />
+                <div className="relative bg-gradient-to-br from-destructive/10 to-destructive/5 p-6 rounded-full border-2 border-destructive/20">
+                  {isNetworkError ? (
+                    <WifiOff className="h-12 w-12 text-destructive" />
+                  ) : isServerError ? (
+                    <ServerOff className="h-12 w-12 text-destructive" />
+                  ) : (
+                    <AlertCircle className="h-12 w-12 text-destructive" />
+                  )}
+                </div>
+              </div>
+
+              {/* Error Title */}
+              <div className="space-y-2">
+                <h1 className="text-3xl font-bold text-foreground">
+                  {isNetworkError ? 'Connection Error' : isServerError ? 'Server Unavailable' : 'Unable to Load Data'}
+                </h1>
+                <p className="text-muted-foreground text-lg max-w-md">
+                  {isNetworkError 
+                    ? 'We couldn\'t reach the server. Please check your internet connection and try again.'
+                    : isServerError
+                    ? 'The server is temporarily unavailable. Our team has been notified and is working on a fix.'
+                    : 'We encountered an issue while loading your dashboard. Please try again in a moment.'}
+                </p>
+              </div>
+
+              {/* Error Details (Collapsible) */}
+              <details className="w-full">
+                <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors mb-2">
+                  Technical Details
+                </summary>
+                <div className="mt-3 p-4 bg-muted/50 rounded-lg border border-border text-left">
+                  <p className="text-sm font-mono text-muted-foreground break-all">
+                    {errorMessage}
+                  </p>
+                </div>
+              </details>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto pt-4">
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  size="lg"
+                  className="w-full sm:w-auto bg-primary hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Retry Connection
+                </Button>
+                <Button 
+                  onClick={() => {
+                    // Clear cache and reload
+                    localStorage.clear()
+                    window.location.reload()
+                  }}
+                  variant="outline"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                >
+                  Clear Cache & Retry
+                </Button>
+              </div>
+
+              {/* Helpful Tips */}
+              <div className="pt-6 border-t border-border w-full">
+                <p className="text-sm font-semibold text-foreground mb-3">Quick Troubleshooting:</p>
+                <ul className="text-sm text-muted-foreground space-y-2 text-left max-w-md mx-auto">
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary mt-0.5">•</span>
+                    <span>Check your internet connection</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary mt-0.5">•</span>
+                    <span>Ensure the API server is running</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary mt-0.5">•</span>
+                    <span>Try refreshing the page or clearing your browser cache</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary mt-0.5">•</span>
+                    <span>If the problem persists, contact support</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -271,8 +343,13 @@ export function DashboardPage() {
               </Button>
             </div>
           ) : enrollmentsLoading ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Loading enrollments...
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="p-4 rounded-lg border border-border animate-pulse">
+                  <div className="h-5 bg-muted rounded w-3/4 mb-2" />
+                  <div className="h-4 bg-muted rounded w-1/2" />
+                </div>
+              ))}
             </div>
           ) : enrollments && enrollments.length > 0 ? (
             <div className="space-y-3">

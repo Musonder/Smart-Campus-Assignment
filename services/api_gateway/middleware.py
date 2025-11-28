@@ -9,11 +9,102 @@ from typing import Callable
 from uuid import uuid4
 
 from fastapi import Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response as FastAPIResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+class CORSPreflightMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to explicitly handle OPTIONS preflight requests.
+    
+    This ensures CORS preflight requests are handled before
+    they reach other middleware or route handlers.
+    """
+    
+    def __init__(self, app: Callable, allowed_origins: list[str]):
+        """
+        Initialize CORS preflight middleware.
+        
+        Args:
+            app: ASGI app
+            allowed_origins: List of allowed CORS origins
+        """
+        super().__init__(app)
+        self.allowed_origins = allowed_origins
+    
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        """
+        Handle OPTIONS preflight requests.
+        
+        Args:
+            request: Incoming request
+            call_next: Next middleware/handler
+            
+        Returns:
+            Response: Preflight response or passes through
+        """
+        origin = request.headers.get("origin")
+        
+        # In development, be more permissive - allow localhost origins
+        # Check if origin matches any allowed origin or is a localhost variant
+        is_allowed_origin = False
+        if origin:
+            # Direct match
+            if origin in self.allowed_origins:
+                is_allowed_origin = True
+            # Check for localhost variants (http://localhost:*, http://127.0.0.1:*)
+            elif any(
+                origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")
+                for allowed in self.allowed_origins
+                if allowed.startswith("http://localhost") or allowed.startswith("http://127.0.0.1")
+            ):
+                is_allowed_origin = True
+            # Wildcard support
+            elif "*" in self.allowed_origins:
+                is_allowed_origin = True
+        # If no origins specified, allow all (dev mode)
+        elif not self.allowed_origins:
+            is_allowed_origin = True
+        
+    
+        if request.method == "OPTIONS":
+            response = FastAPIResponse(status_code=200)
+            # Always set the origin header if present (permissive approach for development)
+            if origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            else:
+                response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+            response.headers["Access-Control-Max-Age"] = "3600"
+            logger.info(
+                "Handled OPTIONS preflight",
+                origin=origin,
+                path=request.url.path,
+                allowed=is_allowed_origin,
+                headers=dict(response.headers)
+            )
+            return response
+        
+        # For non-OPTIONS requests, continue to next middleware
+        response = await call_next(request)
+        
+        # Add CORS headers to all responses (as fallback)
+        if origin:
+            if is_allowed_origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            else:
+                # Still add header for development (permissive)
+                response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        
+        return response
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -118,8 +209,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Get client IP
         client_ip = request.client.host if request.client else "unknown"
 
-        # Skip rate limiting for health checks
-        if request.url.path.startswith("/health"):
+        # Skip rate limiting for health checks and OPTIONS (preflight) requests
+        if request.url.path.startswith("/health") or request.method == "OPTIONS":
             return await call_next(request)
 
         # Current time
@@ -143,17 +234,38 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 limit=self.requests_per_minute,
             )
 
-            return JSONResponse(
+            # Create rate limit response with CORS headers
+            response = JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
                     "error": "Rate limit exceeded",
                     "message": f"Maximum {self.requests_per_minute} requests per minute allowed",
                 },
             )
+            
+            # Add CORS headers to rate limit response
+            origin = request.headers.get("origin")
+            if origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+                response.headers["Access-Control-Allow-Headers"] = "*"
+            
+            return response
 
         # Record request
         self.request_counts[client_ip].append(now)
 
         # Process request
-        return await call_next(request)
+        response = await call_next(request)
+        
+        # Ensure CORS headers are added to all responses
+        origin = request.headers.get("origin")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+        
+        return response
 

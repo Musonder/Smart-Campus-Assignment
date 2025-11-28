@@ -149,6 +149,47 @@ class OAuthCredential(Credential):
         return True  # Placeholder
 
 
+class CertificateCredential(Credential):
+    """
+    Certificate-based authentication credential.
+    
+    Supports X.509 certificates for strong authentication.
+    """
+
+    strategy: AuthStrategy = Field(default=AuthStrategy.CERTIFICATE)
+    certificate_serial: str = Field(..., description="Certificate serial number")
+    certificate_thumbprint: str = Field(..., description="SHA-256 thumbprint")
+    issuer: str = Field(..., description="Certificate authority (CA)")
+    subject: str = Field(..., description="Certificate subject (CN)")
+    valid_from: datetime = Field(..., description="Certificate validity start")
+    valid_until: datetime = Field(..., description="Certificate validity end")
+    certificate_pem: Optional[str] = Field(
+        default=None, description="PEM-encoded certificate (encrypted storage)"
+    )
+
+    def verify(self, challenge: Any) -> bool:
+        """
+        Verify certificate credential.
+        
+        Args:
+            challenge: Certificate or signature to verify
+            
+        Returns:
+            bool: True if certificate is valid
+        """
+        # Certificate verification happens in auth service
+        # This checks expiration and basic validity
+        now = datetime.utcnow()
+        if now < self.valid_from or now > self.valid_until:
+            return False
+        return True  # Placeholder - actual verification in auth service
+
+    def is_certificate_valid(self) -> bool:
+        """Check if certificate is within validity period."""
+        now = datetime.utcnow()
+        return self.valid_from <= now <= self.valid_until
+
+
 class Permission(BaseModel):
     """
     Fine-grained permission for RBAC/ABAC.

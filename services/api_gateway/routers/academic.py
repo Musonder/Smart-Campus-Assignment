@@ -1,7 +1,7 @@
 """
 Academic Router
 
-Handles academic operations: courses, enrollment, grades, etc.
+Handles academic operations: courses, enrollment, grades, assignments, etc.
 Proxies requests to Academic Service.
 """
 
@@ -10,6 +10,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status, Query, Header, Request
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 import httpx
 import structlog
@@ -137,6 +138,56 @@ class SectionResponse(BaseModel):
     created_at: datetime
 
 
+class AssignmentCreatePayload(BaseModel):
+    section_id: UUID
+    title: str
+    description: Optional[str] = None
+    type: str = "auto"
+    due_date: datetime
+    total_points: int = 100
+    external_task_id: Optional[str] = None
+
+
+class AssignmentResponse(BaseModel):
+    id: UUID
+    course_id: UUID
+    section_id: UUID
+    title: str
+    description: Optional[str]
+    type: str
+    due_date: datetime
+    total_points: int
+    external_task_id: Optional[str]
+    created_by_lecturer_id: UUID
+    status: str
+
+
+class SubmissionCreatePayload(BaseModel):
+    answer: dict
+
+
+class SubmissionResponse(BaseModel):
+    id: UUID
+    assignment_id: UUID
+    student_id: UUID
+    submitted_at: datetime
+    auto_score: Optional[float]
+    auto_feedback: Optional[str]
+    lecturer_score: Optional[float]
+    lecturer_feedback: Optional[str]
+    status: str
+
+
+class ExternalTaskResponse(BaseModel):
+    """External auto-grader task (e.g. INGInious task) metadata."""
+
+    id: str
+    name: str
+    course_code: Optional[str] = None
+    course_title: Optional[str] = None
+    description: Optional[str] = None
+
+
 class EnrollmentRequest(BaseModel):
     """Enrollment request."""
 
@@ -151,10 +202,22 @@ class EnrollmentResponse(BaseModel):
     student_id: UUID
     section_id: UUID
     course_code: str
+    course_title: str
+    section_number: str
+    semester: str
     enrollment_status: str
     is_waitlisted: bool
     waitlist_position: Optional[int]
+    current_grade_percentage: float
+    current_letter_grade: Optional[str]
     enrolled_at: datetime
+    
+    # Schedule information (from section)
+    schedule_days: list[str]
+    start_time: str
+    end_time: str
+    room_id: Optional[str]
+    instructor_id: str
 
 
 async def _list_courses(
@@ -640,5 +703,426 @@ async def get_my_enrollments(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Academic service unavailable"
+        )
+
+
+# ------ Assignment proxy endpoints ------
+
+@router.post("/assignments", response_model=AssignmentResponse, status_code=status.HTTP_201_CREATED)
+async def create_assignment(
+    payload: AssignmentCreatePayload,
+    authorization: Optional[str] = Header(None),
+) -> AssignmentResponse:
+    """Create an assignment (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        json_payload = jsonable_encoder(payload)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{ACADEMIC_SERVICE_URL}/assignments",
+                json=json_payload,
+                headers=headers,
+            )
+        if response.status_code == 201:
+            return response.json()
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy assignment creation", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.get("/assignments", response_model=list[AssignmentResponse])
+async def list_assignments_for_lecturer(
+    authorization: Optional[str] = Header(None),
+    section_id: Optional[UUID] = Query(None),
+) -> list[AssignmentResponse]:
+    """List assignments for the current lecturer."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        params = {}
+        if section_id:
+            params["section_id"] = str(section_id)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ACADEMIC_SERVICE_URL}/assignments",
+                headers=headers,
+                params=params,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy list assignments", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.get("/assignments/student", response_model=list[AssignmentResponse])
+async def list_assignments_for_student(
+    authorization: Optional[str] = Header(None),
+) -> list[AssignmentResponse]:
+    """List assignments available to the current student."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ACADEMIC_SERVICE_URL}/assignments/student",
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy student assignments", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.get("/assignments/external-tasks", response_model=list[ExternalTaskResponse])
+async def list_external_tasks(
+    section_id: Optional[UUID] = Query(
+        None,
+        description="Optional section context to filter external tasks by course",
+    ),
+    authorization: Optional[str] = Header(None),
+) -> list[ExternalTaskResponse]:
+    """List external auto-grader tasks via Academic Service (e.g. INGInious tasks)."""
+    try:
+        headers: dict[str, str] = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        params: dict[str, str] = {}
+        if section_id:
+            params["section_id"] = str(section_id)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ACADEMIC_SERVICE_URL}/assignments/external-tasks",
+                headers=headers,
+                params=params,
+            )
+
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy external tasks listing", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.get("/assignments/questions", response_model=list)
+async def list_questions(
+    course_id: Optional[UUID] = Query(None),
+    question_type: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+) -> list:
+    """List questions created by the current lecturer."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        params = {}
+        if course_id:
+            params["course_id"] = str(course_id)
+        if question_type:
+            params["question_type"] = question_type
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ACADEMIC_SERVICE_URL}/assignments/questions",
+                headers=headers,
+                params=params,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy list questions", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.post("/assignments/questions", response_model=dict)
+async def create_question(
+    payload: dict,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Create a question (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{ACADEMIC_SERVICE_URL}/assignments/questions",
+                json=payload,
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy create question", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.put("/assignments/questions/{question_id}", response_model=dict)
+async def update_question(
+    question_id: UUID,
+    payload: dict,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Update a question (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.put(
+                f"{ACADEMIC_SERVICE_URL}/assignments/questions/{question_id}",
+                json=payload,
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy update question", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.delete("/assignments/questions/{question_id}", response_model=dict)
+async def delete_question(
+    question_id: UUID,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Delete a question (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.delete(
+                f"{ACADEMIC_SERVICE_URL}/assignments/questions/{question_id}",
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy delete question", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.post("/assignments/{assignment_id}/questions/link", response_model=dict)
+async def link_question_to_assignment(
+    assignment_id: UUID,
+    payload: dict,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Link a question to an assignment (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{ACADEMIC_SERVICE_URL}/assignments/{assignment_id}/questions/link",
+                json=payload,
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy link question", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.delete("/assignments/{assignment_id}/questions/{question_id}/unlink", response_model=dict)
+async def unlink_question_from_assignment(
+    assignment_id: UUID,
+    question_id: UUID,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Unlink a question from an assignment (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.delete(
+                f"{ACADEMIC_SERVICE_URL}/assignments/{assignment_id}/questions/{question_id}/unlink",
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy unlink question", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.get(
+    "/assignments/{assignment_id}/questions",
+    response_model=list,
+)
+async def get_assignment_questions(
+    assignment_id: UUID,
+    lecturer_view: bool = Query(False),
+    authorization: Optional[str] = Header(None),
+) -> list:
+    """Get questions for an assignment (student or lecturer view)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        params = {}
+        if lecturer_view:
+            params["lecturer_view"] = "true"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ACADEMIC_SERVICE_URL}/assignments/{assignment_id}/questions",
+                headers=headers,
+                params=params,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy get assignment questions", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.post(
+    "/assignments/{assignment_id}/submissions",
+    response_model=SubmissionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_assignment(
+    assignment_id: UUID,
+    payload: dict,  # Changed to dict to accept answers array
+    authorization: Optional[str] = Header(None),
+) -> SubmissionResponse:
+    """Submit an assignment attempt with answers (student)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{ACADEMIC_SERVICE_URL}/assignments/{assignment_id}/submissions",
+                json=payload,
+                headers=headers,
+            )
+        if response.status_code in (200, 201):
+            return response.json()
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy assignment submission", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.get(
+    "/assignments/{assignment_id}/submissions",
+    response_model=list[SubmissionResponse],
+)
+async def list_assignment_submissions(
+    assignment_id: UUID,
+    authorization: Optional[str] = Header(None),
+) -> list[SubmissionResponse]:
+    """List submissions for an assignment (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ACADEMIC_SERVICE_URL}/assignments/{assignment_id}/submissions",
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy list assignment submissions", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
+        )
+
+
+@router.post(
+    "/assignments/submissions/{submission_id}/approve",
+    response_model=SubmissionResponse,
+)
+async def approve_submission(
+    submission_id: UUID,
+    payload: dict,
+    authorization: Optional[str] = Header(None),
+) -> SubmissionResponse:
+    """Approve an auto-graded submission (lecturer)."""
+    try:
+        headers = {}
+        if authorization:
+            headers["Authorization"] = authorization
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{ACADEMIC_SERVICE_URL}/assignments/submissions/{submission_id}/approve",
+                json=payload,
+                headers=headers,
+            )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error("Failed to proxy submission approval", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Academic service unavailable",
         )
 

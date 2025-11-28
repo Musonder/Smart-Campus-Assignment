@@ -112,6 +112,20 @@ class Settings(BaseSettings):
     ml_batch_size: int = 32
     ml_random_seed: int = 42
 
+    # External auto-grading / assignment service
+    external_grader_base_url: str = Field(
+        default="",
+        description="http://localhost:9000 ",
+    )
+    external_grader_api_key: str | None = Field(
+        default=None,
+        description="Optional API key for external auto-grading service",
+    )
+    external_grader_enabled: bool = Field(
+        default=False,
+        description="Enable external auto-grading integration",
+    )
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "text"] = "json"

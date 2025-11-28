@@ -5,7 +5,7 @@ Core enrollment business logic with policy engine and event sourcing.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -15,6 +15,13 @@ import structlog
 from shared.events.store import EventStore
 from shared.events.base import Snapshot
 from shared.domain.policies import PolicyEngine, PolicyResult
+from shared.domain.exceptions import EnrollmentPolicyViolationError
+from shared.verification.enrollment_invariants import (
+    assert_enrollment_invariant,
+    get_invariant_monitor,
+    Section as VerificationSection,
+    TimeSlot,
+)
 from services.academic_service.aggregates import EnrollmentAggregate
 from services.academic_service.models import EnrollmentModel, SectionModel, CourseModel
 from services.user_service.models import StudentModel
@@ -127,6 +134,40 @@ class EnrollmentService:
             student_id=str(student_id),
             section_id=str(section_id),
         )
+
+        # FORMAL VERIFICATION: Assert enrollment invariant
+        # Critical invariant: "No student can be enrolled in overlapping sections 
+        # that are scheduled at the same time with the same seat allocation."
+        try:
+            # Build verification sections from database
+            verification_sections = await self._build_verification_sections(
+                student_id, section_id, section
+            )
+            
+            # Assert invariant (raises AssertionError if violated)
+            assert_enrollment_invariant(
+                student_id=int(student_id),
+                section_id=int(section_id),
+                sections=verification_sections,
+                raise_on_violation=True,
+            )
+            
+            logger.info(
+                "Formal verification passed - enrollment invariant satisfied",
+                student_id=str(student_id),
+                section_id=str(section_id),
+            )
+        except AssertionError as e:
+            logger.error(
+                "Formal verification failed - enrollment invariant violated",
+                student_id=str(student_id),
+                section_id=str(section_id),
+                error=str(e),
+            )
+            raise EnrollmentPolicyViolationError(
+                reason=f"Formal verification failed: {str(e)}",
+                violated_rules=["enrollment_invariant_time_overlap"],
+            )
 
         # Create enrollment aggregate
         enrollment_id = uuid4()
@@ -345,20 +386,115 @@ class EnrollmentService:
         )
 
         return sum(row[0] for row in result.all())
-
-
-class EnrollmentPolicyViolationError(Exception):
-    """Raised when enrollment policies are violated."""
-
-    def __init__(self, reason: str, violated_rules: list[str]):
+    
+    async def _build_verification_sections(
+        self,
+        student_id: UUID,
+        target_section_id: UUID,
+        target_section: SectionModel,
+    ) -> dict[int, VerificationSection]:
         """
-        Initialize policy violation error.
+        Build verification Section objects from database models.
+        
+        This converts database models to the verification format needed
+        for formal invariant checking.
         
         Args:
-            reason: Human-readable reason
-            violated_rules: List of violated rule identifiers
+            student_id: Student being enrolled
+            target_section_id: Section being enrolled in
+            target_section: SectionModel for target section
+            
+        Returns:
+            Dictionary of section_id -> VerificationSection
         """
-        super().__init__(reason)
-        self.reason = reason
-        self.violated_rules = violated_rules
+        from datetime import time as dt_time
+        
+        sections = {}
+        
+        # Get all sections the student is currently enrolled in
+        current_enrollments = await self._get_current_enrollments(
+            student_id, target_section.semester
+        )
+        
+        # Convert each enrolled section
+        for enrollment in current_enrollments:
+            section_id = int(UUID(enrollment['section_id']))
+            section_model = await self._get_section(UUID(enrollment['section_id']))
+            
+            if section_model:
+                # Parse schedule days
+                days = set(enrollment.get('days', '').split(',')) if enrollment.get('days') else set()
+                
+                # Parse times
+                start_time = enrollment.get('start_time')
+                end_time = enrollment.get('end_time')
+                
+                if isinstance(start_time, str):
+                    start_time = dt_time.fromisoformat(start_time)
+                if isinstance(end_time, str):
+                    end_time = dt_time.fromisoformat(end_time)
+                
+                time_slot = TimeSlot(
+                    start_time=start_time or dt_time(9, 0),
+                    end_time=end_time or dt_time(10, 0),
+                    days=days,
+                )
+                
+                # Get enrolled students for this section
+                enrollments_result = await self.db.execute(
+                    select(EnrollmentModel.student_id).where(
+                        EnrollmentModel.section_id == section_model.id,
+                        EnrollmentModel.enrollment_status == "enrolled",
+                    )
+                )
+                enrolled_students = {int(uid) for uid, in enrollments_result.all()}
+                
+                sections[section_id] = VerificationSection(
+                    section_id=section_id,
+                    course_id=int(section_model.course_id),
+                    room_id=int(section_model.room_id) if section_model.room_id else 0,
+                    capacity=section_model.max_enrollment,
+                    time_slot=time_slot,
+                    enrolled_students=enrolled_students,
+                )
+        
+        # Add target section
+        target_section_id_int = int(target_section_id)
+        days = set(target_section.schedule_days.split(',')) if target_section.schedule_days else set()
+        
+        start_time = target_section.start_time
+        end_time = target_section.end_time
+        
+        if isinstance(start_time, str):
+            start_time = dt_time.fromisoformat(start_time)
+        if isinstance(end_time, str):
+            end_time = dt_time.fromisoformat(end_time)
+        
+        time_slot = TimeSlot(
+            start_time=start_time or dt_time(9, 0),
+            end_time=end_time or dt_time(10, 0),
+            days=days,
+        )
+        
+        # Get enrolled students for target section
+        enrollments_result = await self.db.execute(
+            select(EnrollmentModel.student_id).where(
+                EnrollmentModel.section_id == target_section_id,
+                EnrollmentModel.enrollment_status == "enrolled",
+            )
+        )
+        enrolled_students = {int(uid) for uid, in enrollments_result.all()}
+        
+        sections[target_section_id_int] = VerificationSection(
+            section_id=target_section_id_int,
+            course_id=int(target_section.course_id),
+            room_id=int(target_section.room_id) if target_section.room_id else 0,
+            capacity=target_section.max_enrollment,
+            time_slot=time_slot,
+            enrolled_students=enrolled_students,
+        )
+        
+        return sections
+
+
 

@@ -1,0 +1,15 @@
+{
+  "name": "argos-node-client",
+  "version": "1.0.0",
+  "description": "Minimal Node/TypeScript client SDK for Argos APIs",
+  "main": "argos-client.ts",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
+
+

@@ -4,6 +4,15 @@ API Gateway Main Application
 FastAPI-based API gateway providing unified access to all microservices.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to Python path if running directly
+# This allows absolute imports to work when running as a script
+project_root = Path(__file__).parent.parent.parent.resolve()
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -14,7 +23,7 @@ import structlog
 
 from shared.config import settings
 from shared.database import init_db, close_db, init_mongodb, close_mongodb, init_redis, close_redis
-from services.api_gateway.middleware import RateLimitMiddleware, LoggingMiddleware
+from services.api_gateway.middleware import RateLimitMiddleware, LoggingMiddleware, CORSPreflightMiddleware
 from services.api_gateway.routers import health, auth, users, academic, scheduler, analytics, facility, lecturer, admin, facilities
 
 logger = structlog.get_logger(__name__)
@@ -61,37 +70,128 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# Configure CORS - MUST be added before other middleware
-# In development, use explicit origins; in production, use configured origins
 if settings.environment == "development":
-    # Development: allow common localhost ports
     cors_origins = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
     ]
+    # Also allow any localhost origin in development
+    logger.info("CORS configured for development - allowing localhost origins")
 else:
     # Production: use configured origins
     cors_origins = settings.cors_origins if settings.cors_origins else []
 
 logger.info("CORS configured", origins=cors_origins, environment=settings.environment)
 
+
+# Add custom middleware FIRST (executes LAST in the chain)
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
+
+# Add FastAPI CORS middleware (executes in middle, adds headers to all responses)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
     expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
-# Add custom middleware
-app.add_middleware(LoggingMiddleware)
-app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
+# Add CORS preflight middleware LAST (executes FIRST, handles OPTIONS immediately)
+# This ensures OPTIONS requests are handled before any other processing
+app.add_middleware(CORSPreflightMiddleware, allowed_origins=cors_origins)
 
 
-# Global exception handler
+# Import domain exceptions for proper handling
+from shared.domain.exceptions import DomainException
+from fastapi.exceptions import HTTPException as FastAPIHTTPException
+
+
+# Global exception handler with rich domain exception support
+@app.exception_handler(DomainException)
+async def domain_exception_handler(request: Request, exc: DomainException) -> JSONResponse:
+    """
+    Handle domain exceptions with structured error responses.
+    
+    Args:
+        request: FastAPI request
+        exc: Domain exception
+        
+    Returns:
+        JSONResponse: Structured error response
+    """
+    logger.warning(
+        "Domain exception",
+        path=request.url.path,
+        method=request.method,
+        error_code=exc.error_code.value,
+        message=exc.message,
+        status_code=exc.status_code,
+        context=exc.context,
+    )
+    
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict(),
+    )
+    
+    # Add CORS headers
+    origin = request.headers.get("origin")
+    if origin and (origin in cors_origins or "*" in cors_origins or settings.environment == "development"):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    
+    return response
+
+
+@app.exception_handler(FastAPIHTTPException)
+async def http_exception_handler(request: Request, exc: FastAPIHTTPException) -> JSONResponse:
+    """
+    Handle FastAPI HTTP exceptions.
+    
+    Args:
+        request: FastAPI request
+        exc: HTTP exception
+        
+    Returns:
+        JSONResponse: Error response
+    """
+    logger.warning(
+        "HTTP exception",
+        path=request.url.path,
+        method=request.method,
+        status_code=exc.status_code,
+        detail=exc.detail,
+    )
+    
+    content = {
+        "error": "HTTP_ERROR",
+        "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+        "status_code": exc.status_code,
+    }
+    
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content=content,
+    )
+    
+    # Add CORS headers
+    origin = request.headers.get("origin")
+    if origin and (origin in cors_origins or "*" in cors_origins or settings.environment == "development"):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    
+    return response
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
@@ -111,13 +211,14 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         method=request.method,
         error=str(exc),
         error_type=type(exc).__name__,
+        exc_info=True,  # Include full traceback
     )
 
     # Create response with CORS headers
     response = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
-            "error": "Internal server error",
+            "error": "INTERNAL_SERVER_ERROR",
             "message": str(exc) if settings.debug else "An unexpected error occurred",
             "type": type(exc).__name__,
         },

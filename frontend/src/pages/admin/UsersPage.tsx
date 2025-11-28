@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Users, Search, Plus, Edit, Trash2, X, Loader2 } from 'lucide-react'
+import { Users, Search, Plus, Edit, Trash2, Loader2, ShieldAlert } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { getInitials } from '@/lib/utils'
 import apiClient, { getErrorMessage } from '@/lib/api-client'
+import { authService } from '@/services/auth.service'
 
 interface User {
   id: string
@@ -79,6 +80,13 @@ export function AdminUsersPage() {
     is_active: true,
   })
   const [editForm, setEditForm] = useState<UpdateUserRequest>({})
+
+  // Get current logged-in user
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => authService.getCurrentUser(),
+    retry: 1,
+  })
 
   // Fetch users - REAL API
   const { data: users, isLoading, isError, error } = useQuery({
@@ -197,9 +205,25 @@ export function AdminUsersPage() {
   }
 
   const handleDelete = (user: User) => {
+    // Prevent admin from deleting their own account
+    if (currentUser && user.id === currentUser.id) {
+      toast.error('You cannot delete your own account!')
+      return
+    }
+    
     if (confirm(`Are you sure you want to delete ${user.full_name}? This action cannot be undone.`)) {
       deleteMutation.mutate(user.id)
     }
+  }
+
+  const handleDeactivate = (userId: string) => {
+    // Prevent admin from deactivating their own account
+    if (currentUser && userId === currentUser.id) {
+      toast.error('You cannot deactivate your own account!')
+      return
+    }
+    
+    deactivateMutation.mutate(userId)
   }
 
   const handleCreate = () => {
@@ -336,6 +360,12 @@ export function AdminUsersPage() {
                     <Badge variant={user.is_active ? 'default' : 'destructive'}>
                       {user.is_active ? 'Active' : 'Inactive'}
                     </Badge>
+                    {currentUser && user.id === currentUser.id && (
+                      <Badge variant="outline" className="gap-1">
+                        <ShieldAlert className="h-3 w-3" />
+                        You
+                      </Badge>
+                    )}
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
@@ -348,8 +378,9 @@ export function AdminUsersPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => deactivateMutation.mutate(user.id)}
-                          disabled={deactivateMutation.isPending}
+                          onClick={() => handleDeactivate(user.id)}
+                          disabled={deactivateMutation.isPending || (currentUser?.id === user.id)}
+                          title={currentUser?.id === user.id ? 'You cannot deactivate your own account' : 'Deactivate this user'}
                         >
                           Deactivate
                         </Button>
@@ -367,7 +398,8 @@ export function AdminUsersPage() {
                         variant="destructive"
                         size="sm"
                         onClick={() => handleDelete(user)}
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending || (currentUser?.id === user.id)}
+                        title={currentUser?.id === user.id ? 'You cannot delete your own account' : 'Delete this user'}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

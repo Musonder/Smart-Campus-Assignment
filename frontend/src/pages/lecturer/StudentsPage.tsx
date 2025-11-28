@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Users, Search, Mail, GraduationCap, BookOpen } from 'lucide-react'
+import { Users, Search, Mail, GraduationCap, BookOpen, ChevronDown, ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -30,9 +30,17 @@ interface Enrollment {
   attendance_percentage: number
 }
 
+interface StudentWithEnrollments {
+  student_id: string
+  student_name: string
+  student_email: string
+  enrollments: Enrollment[]
+}
+
 export function LecturerStudentsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedSection, setSelectedSection] = useState<string>('all')
+  const [expandedStudents, setExpandedStudents] = useState<Record<string, boolean>>({})
 
   // Fetch lecturer's sections
   const { data: sections } = useQuery({
@@ -94,14 +102,40 @@ export function LecturerStudentsPage() {
   })
 
   // Filter enrollments by search term
-  const filteredEnrollments = enrollments?.filter((enrollment) => {
-    const matchesSearch = searchTerm === '' ||
-      enrollment.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.student_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.course_code.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    return matchesSearch
-  }) || []
+  const filteredEnrollments = (enrollments || []).filter((enrollment) => {
+    const term = searchTerm.toLowerCase()
+    if (!term) return true
+
+    return (
+      enrollment.student_name.toLowerCase().includes(term) ||
+      enrollment.student_email.toLowerCase().includes(term) ||
+      enrollment.course_code.toLowerCase().includes(term) ||
+      enrollment.course_title.toLowerCase().includes(term)
+    )
+  })
+
+  // Group by unique student for a professional summary
+  const studentsMap = filteredEnrollments.reduce<Record<string, StudentWithEnrollments>>(
+    (acc, enrollment) => {
+      const existing = acc[enrollment.student_id]
+      if (existing) {
+        existing.enrollments.push(enrollment)
+      } else {
+        acc[enrollment.student_id] = {
+          student_id: enrollment.student_id,
+          student_name: enrollment.student_name,
+          student_email: enrollment.student_email,
+          enrollments: [enrollment],
+        }
+      }
+      return acc
+    },
+    {},
+  )
+
+  const uniqueStudents = Object.values(studentsMap)
+  const uniqueStudentCount = uniqueStudents.length
+  const totalEnrollments = filteredEnrollments.length
 
   return (
     <div className="space-y-6">
@@ -153,7 +187,9 @@ export function LecturerStudentsPage() {
         <CardHeader>
           <CardTitle>Enrolled Students</CardTitle>
           <CardDescription>
-            {filteredEnrollments.length} student{filteredEnrollments.length !== 1 ? 's' : ''} found
+            {uniqueStudentCount === 0
+              ? 'No students found'
+              : `${uniqueStudentCount} student${uniqueStudentCount !== 1 ? 's' : ''} across ${totalEnrollments} enrollment${totalEnrollments !== 1 ? 's' : ''}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -172,66 +208,135 @@ export function LecturerStudentsPage() {
               </p>
               <Button onClick={() => window.location.reload()}>Retry</Button>
             </div>
-          ) : filteredEnrollments.length > 0 ? (
+          ) : uniqueStudents.length > 0 ? (
             <div className="space-y-4">
-              {filteredEnrollments.map((enrollment) => (
-                <Card key={enrollment.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-xl font-bold text-foreground">
-                            {enrollment.student_name}
-                          </h3>
-                          <Badge variant="outline" className="font-mono">
-                            {enrollment.course_code}
-                          </Badge>
-                          <Badge variant="secondary">
-                            Section {enrollment.section_number}
-                          </Badge>
-                          <Badge variant={enrollment.enrollment_status === 'enrolled' ? 'default' : 'secondary'}>
-                            {enrollment.enrollment_status}
-                          </Badge>
-                        </div>
-                        <div className="space-y-1 mb-4">
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {uniqueStudents.map((student) => (
+                <Card key={student.student_id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="pt-6 space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedStudents((prev) => ({
+                              ...prev,
+                              [student.student_id]: !prev[student.student_id],
+                            }))
+                          }
+                          className="mt-1 rounded-full p-1 hover:bg-muted transition-colors"
+                          aria-label={
+                            expandedStudents[student.student_id] ? 'Collapse courses' : 'Expand courses'
+                          }
+                        >
+                          {expandedStudents[student.student_id] ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </button>
+                        <div>
+                          <h3 className="text-xl font-bold text-foreground">{student.student_name}</h3>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                             <Mail className="h-4 w-4" />
-                            <span>{enrollment.student_email}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <BookOpen className="h-4 w-4" />
-                            <span>{enrollment.course_title}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <GraduationCap className="h-4 w-4" />
-                            <span>Enrolled: {new Date(enrollment.enrolled_at).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4 mt-4">
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Attendance</p>
-                            <p className="text-sm font-semibold">{enrollment.attendance_percentage.toFixed(1)}%</p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Current Grade</p>
-                            <p className="text-sm font-semibold">
-                              {enrollment.current_letter_grade || 'N/A'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Percentage</p>
-                            <p className="text-sm font-semibold">
-                              {enrollment.current_grade_percentage?.toFixed(1) || 'N/A'}%
-                            </p>
+                            <span>{student.student_email}</span>
                           </div>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm" asChild>
-                        <Link to={`/lecturer/grading?student_id=${enrollment.student_id}&section_id=${enrollment.id}`}>
-                          View Grades
-                        </Link>
-                      </Button>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="secondary">
+                          {student.enrollments.length} course
+                          {student.enrollments.length !== 1 ? 's' : ''}
+                        </Badge>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedStudents((prev) => ({
+                              ...prev,
+                              [student.student_id]: !prev[student.student_id],
+                            }))
+                          }
+                          className="text-xs text-primary hover:underline"
+                        >
+                          {expandedStudents[student.student_id] ? 'Hide courses' : 'Show courses'}
+                        </button>
+                      </div>
                     </div>
+
+                    {expandedStudents[student.student_id] && (
+                      <div className="space-y-3">
+                        {student.enrollments.map((enrollment) => (
+                          <div
+                            key={enrollment.id}
+                            className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border rounded-md p-3 bg-muted/40"
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <Badge variant="outline" className="font-mono">
+                                  {enrollment.course_code}
+                                </Badge>
+                                <Badge variant="secondary">
+                                  Section {enrollment.section_number}
+                                </Badge>
+                                <Badge
+                                  variant={
+                                    enrollment.enrollment_status === 'enrolled'
+                                      ? 'default'
+                                      : 'secondary'
+                                  }
+                                >
+                                  {enrollment.enrollment_status}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <BookOpen className="h-4 w-4" />
+                                <span>{enrollment.course_title}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                                <GraduationCap className="h-3 w-3" />
+                                <span>
+                                  Enrolled:{' '}
+                                  {new Date(enrollment.enrolled_at).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-4">
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Attendance
+                                </p>
+                                <p className="text-sm font-semibold">
+                                  {enrollment.attendance_percentage.toFixed(1)}%
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Current Grade
+                                </p>
+                                <p className="text-sm font-semibold">
+                                  {enrollment.current_letter_grade || 'N/A'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Percentage
+                                </p>
+                                <p className="text-sm font-semibold">
+                                  {enrollment.current_grade_percentage?.toFixed(1) || 'N/A'}%
+                                </p>
+                              </div>
+                              <Button variant="outline" size="sm" asChild>
+                                <Link
+                                  to={`/lecturer/grading?student_id=${enrollment.student_id}&section_id=${enrollment.id}`}
+                                >
+                                  View Grades
+                                </Link>
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
