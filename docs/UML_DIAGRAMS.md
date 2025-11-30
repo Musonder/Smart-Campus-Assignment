@@ -15,7 +15,7 @@ The class diagram shows the complete object model with inheritance hierarchies, 
 - Scheduler subsystem (Constraint, Timetable)
 - ML models (BaseMLModel, EnrollmentPredictor, RoomUsageOptimizer)
 
-### Mermaid Code
+### Diagram
 
 ```mermaid
 classDiagram
@@ -411,7 +411,7 @@ classDiagram
 ### Overview
 The component diagram shows the microservices architecture, their interactions, and key components within each service.
 
-### Mermaid Code
+### Diagram
 
 ```mermaid
 graph TB
@@ -544,7 +544,7 @@ graph TB
 ### Overview
 The deployment diagram shows the physical deployment architecture, including containers, databases, and network topology.
 
-### Mermaid Code
+### Diagram
 
 ```mermaid
 graph TB
@@ -677,7 +677,7 @@ graph TB
 ### Overview
 This sequence diagram shows the complete enrollment flow, including event sourcing, policy evaluation, and formal verification.
 
-### Mermaid Code
+### Diagram
 
 ```mermaid
 sequenceDiagram
@@ -746,7 +746,7 @@ sequenceDiagram
 ### Overview
 This sequence diagram shows the grade assignment flow, including encryption, authorization, and audit logging.
 
-### Mermaid Code
+### Diagram
 
 ```mermaid
 sequenceDiagram
@@ -808,7 +808,7 @@ sequenceDiagram
 ### Overview
 This sequence diagram shows the emergency lockdown flow, including facility control, notifications, and audit logging.
 
-### Mermaid Code
+### Diagram
 
 ```mermaid
 sequenceDiagram
